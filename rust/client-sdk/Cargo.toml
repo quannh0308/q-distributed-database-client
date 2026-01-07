@@ -1,0 +1,23 @@
+[package]
+name = "q-distributed-db-client"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+description = "Client SDK for Q-Distributed-Database - A high-performance distributed database"
+keywords = ["database", "distributed", "client", "sdk", "async"]
+categories = ["database", "network-programming", "asynchronous"]
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+bincode = { workspace = true }
+crc32fast = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
