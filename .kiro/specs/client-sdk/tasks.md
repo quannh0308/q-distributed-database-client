@@ -65,7 +65,7 @@ This document tracks the current implementation progress and focuses on the **ne
     - Return error for oversized messages
     - _Requirements: 13.5_
 
-  - [ ]* 2.7 Write property test for message size limit enforcement
+  - [ ] 2.7 Write property test for message size limit enforcement
     - **Property 40: Message Size Limit Enforcement**
     - **Validates: Requirements 13.5**
 
