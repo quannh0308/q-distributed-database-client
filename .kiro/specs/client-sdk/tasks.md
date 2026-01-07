@@ -16,29 +16,24 @@ This document tracks the current implementation progress and focuses on the **ne
 
 ## Current Task
 
-### Task 1: Set up project structure and core types
+- [ ] 1. Set up project structure and core types
+  - Create Rust workspace with proper directory structure
+  - Define core error types (DatabaseError enum)
+  - Define core data types (NodeId, Value, Timestamp, etc.)
+  - Set up dependencies (tokio, serde, bincode, crc32fast)
+  - Configure Cargo.toml with proper metadata
+  - _Requirements: 1.1, 13.1_
 
-**Objective**: Initialize the Rust project with proper structure, core types, and dependencies.
-
-**Requirements**: 1.1, 13.1
-
-**Steps**:
-1. Create Rust workspace with proper directory structure
-2. Define core error types (DatabaseError enum)
-3. Define core data types (NodeId, Value, Timestamp, etc.)
-4. Set up dependencies (tokio, serde, bincode, crc32fast)
-5. Configure Cargo.toml with proper metadata
-
-**Sub-tasks**:
-- [ ] 1.1 Write unit tests for core types (optional)
+- [ ]* 1.1 Write unit tests for core types
   - Test error type creation and formatting
   - Test Value type conversions
+  - _Requirements: 1.1, 13.1_
 
 **Acceptance Criteria**:
-- [ ] Rust project compiles without errors
-- [ ] Core types defined and documented
-- [ ] Dependencies configured in Cargo.toml
-- [ ] Basic unit tests pass (if implemented)
+- Rust project compiles without errors
+- Core types defined and documented
+- Dependencies configured in Cargo.toml
+- Basic unit tests pass (if implemented)
 
 **Related Design**: See FOUNDATION/design.md sections on "Data Models" and "Error Handling"
 
@@ -54,21 +49,10 @@ This document tracks the current implementation progress and focuses on the **ne
 
 ---
 
-## Task Completion Checklist
-
-Before marking current task complete:
-- [ ] All code written and compiles
-- [ ] All required tests written and passing
-- [ ] Code follows Rust best practices
-- [ ] Documentation added (rustdoc comments)
-- [ ] No compiler warnings
-
----
-
 ## Continuation Guidelines
 
 **When starting a task**:
-1. Read the current task description above
+1. Click "Start task" button above
 2. Refer to FOUNDATION files for detailed context if needed
 3. Focus only on the current task - don't jump ahead
 
