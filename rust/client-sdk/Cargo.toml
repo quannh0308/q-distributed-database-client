@@ -21,3 +21,4 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
+proptest = "1.4"

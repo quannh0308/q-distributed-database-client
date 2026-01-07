@@ -31,9 +31,11 @@
 //! ```
 
 pub mod error;
+pub mod protocol;
 pub mod types;
 
 pub use error::DatabaseError;
+pub use protocol::{Message, MessageCodec, MessageType};
 pub use types::*;
 
 /// Result type alias using DatabaseError

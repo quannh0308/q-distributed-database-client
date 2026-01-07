@@ -19,38 +19,38 @@ This implementation plan breaks down the client SDK development into discrete, m
   - Test Value type conversions
   - _Requirements: 1.1, 13.1_
 
-- [ ] 2. Implement message protocol layer
-  - [ ] 2.1 Implement Message struct with all fields
+- [x] 2. Implement message protocol layer
+  - [x] 2.1 Implement Message struct with all fields
     - Define MessageType enum (Ping, Pong, Data, Ack, Error, Heartbeat, etc.)
     - Implement Message struct with sender, recipient, sequence_number, timestamp, payload, checksum
     - Implement CRC32 checksum calculation
     - _Requirements: 13.1, 13.2, 13.4_
 
-  - [ ]* 2.2 Write property test for message serialization round-trip
+  - [x]* 2.2 Write property test for message serialization round-trip
     - **Property 37: Message Serialization Round-Trip**
     - **Validates: Requirements 13.1**
 
-  - [ ]* 2.3 Write property test for checksum validation
+  - [x]* 2.3 Write property test for checksum validation
     - **Property 38: Checksum Validation Detects Corruption**
     - **Validates: Requirements 13.2**
 
-  - [ ] 2.4 Implement MessageCodec for serialization
+  - [x] 2.4 Implement MessageCodec for serialization
     - Implement encode() using bincode
     - Implement decode() using bincode
     - Implement encode_with_length() with 4-byte big-endian length prefix
     - Implement read_message() and write_message() for async I/O
     - _Requirements: 13.1, 13.3_
 
-  - [ ]* 2.5 Write property test for length-prefixed framing
+  - [x]* 2.5 Write property test for length-prefixed framing
     - **Property 39: Length-Prefixed Framing**
     - **Validates: Requirements 13.3**
 
-  - [ ] 2.6 Implement message size validation
+  - [x] 2.6 Implement message size validation
     - Check message size against max_message_size limit
     - Return error for oversized messages
     - _Requirements: 13.5_
 
-  - [ ]* 2.7 Write property test for message size limit enforcement
+  - [x]* 2.7 Write property test for message size limit enforcement
     - **Property 40: Message Size Limit Enforcement**
     - **Validates: Requirements 13.5**
 
