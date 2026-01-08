@@ -30,87 +30,130 @@ The Q-Distributed-Database Client SDK provides a multi-language client library f
 
 ## Current Task Requirements
 
-### Task 4: Checkpoint - Ensure All Tests Pass
+### Task 5: Implement Authentication
 
-This is a checkpoint task to validate that all implemented functionality is working correctly before proceeding to the next phase.
+This task implements the authentication system for the Client SDK, including token-based authentication, automatic re-authentication, and protocol negotiation.
 
-#### Checkpoint Objectives
+#### Authentication Objectives
 
-1. **Verify Test Suite Completeness**
-   - Ensure all unit tests are passing
-   - Ensure all property-based tests are passing
-   - Verify test coverage for implemented features
+1. **Implement Core Authentication Structures**
+   - Define Credentials struct for storing username, password, certificate, and token
+   - Define AuthToken struct with user_id, roles, expiration, and signature
+   - Implement token expiration checking logic
 
-2. **Validate Implementation Quality**
-   - Check that all code compiles without errors or warnings
-   - Verify that all implemented features meet requirements
-   - Ensure error handling is comprehensive
+2. **Implement AuthenticationManager**
+   - Handle authentication requests to the server
+   - Manage token lifecycle (creation, validation, renewal)
+   - Store credentials securely for automatic re-authentication
+   - Implement logout functionality
 
-3. **Review Progress**
-   - Confirm Tasks 1-3 are fully complete
-   - Identify any gaps or issues that need addressing
-   - Prepare for next phase (authentication implementation)
+3. **Implement Protocol Negotiation**
+   - Define ProtocolType enum (TCP, UDP, TLS)
+   - Implement protocol selection with priority (TLS > TCP > UDP)
+   - Handle protocol negotiation messages
+
+#### Detailed Requirements
+
+**Requirement 2: Authentication and Authorization**
+
+**User Story:** As a developer, I want to authenticate users and manage sessions, so that database access is secure and properly authorized.
+
+**Acceptance Criteria:**
+
+1. **Credentials and Token Structure (2.1, 2.2)**
+   - WHEN authenticating, THE Authentication_Manager SHALL support username/password credentials
+   - WHEN authentication succeeds, THE Authentication_Manager SHALL receive and store an Auth_Token containing user_id, roles, expiration timestamp, and cryptographic signature
+
+2. **Token Inclusion in Requests (2.3)**
+   - WHEN making requests, THE Client_SDK SHALL include the Auth_Token in all authenticated requests
+
+3. **Automatic Re-authentication (2.4)**
+   - WHEN a session expires, THE Authentication_Manager SHALL automatically re-authenticate using stored credentials
+
+4. **Logout Functionality (2.6)**
+   - WHEN logging out, THE Authentication_Manager SHALL invalidate the Auth_Token
+
+5. **Token TTL Management (2.8)**
+   - WHEN token TTL is configured, THE Authentication_Manager SHALL respect the configured token time-to-live (default 24 hours)
+
+**Requirement 1.8: Protocol Negotiation**
+
+**Acceptance Criteria:**
+
+1. **Protocol Selection**
+   - WHEN negotiating protocols, THE Client_SDK SHALL support TCP, UDP, and TLS protocol types with automatic protocol selection
+   - THE Client_SDK SHALL select the protocol with highest priority (TLS > TCP > UDP)
+
+#### Implementation Details
+
+**Credentials Structure:**
+```rust
+pub struct Credentials {
+    pub username: String,
+    pub password: Option<String>,
+    pub certificate: Option<Certificate>,
+    pub token: Option<String>,
+}
+```
+
+**AuthToken Structure:**
+```rust
+pub struct AuthToken {
+    pub user_id: UserId,
+    pub roles: Vec<Role>,
+    pub expiration: DateTime<Utc>,
+    pub signature: Vec<u8>,
+}
+```
+
+**AuthenticationManager:**
+- `authenticate()`: Send auth request and receive token
+- `get_valid_token()`: Return valid token or re-authenticate
+- `refresh_token()`: Renew token before expiration
+- `logout()`: Invalidate token on server
+- `is_token_expired()`: Check if token has expired
+
+**Protocol Negotiation:**
+- Define ProtocolType enum (TCP, UDP, TLS)
+- Implement protocol selection with priority
+- Send ProtocolNegotiation message during connection setup
 
 #### Success Criteria
 
+- ✅ Credentials and AuthToken structs defined
+- ✅ Token expiration checking implemented
+- ✅ AuthenticationManager with all methods implemented
+- ✅ Automatic re-authentication working
+- ✅ Logout functionality working
+- ✅ Protocol negotiation implemented
+- ✅ All property tests passing (Properties 7-12)
 - ✅ All unit tests passing
-- ✅ All property-based tests passing
-- ✅ Code compiles without errors
-- ✅ No critical warnings from compiler
-- ✅ Test coverage meets minimum thresholds
-- ✅ All implemented features validated against requirements
 
-#### What to Check
+#### Property Tests for Task 5
 
-**Task 1: Project Structure and Core Types**
-- Core error types defined and tested
-- Core data types (NodeId, Value, Timestamp) working correctly
-- Dependencies properly configured
+**Property 8: Auth Token Structure**
+*For any* successful authentication, the returned Auth_Token should contain user_id, roles, expiration timestamp, and cryptographic signature fields.
+**Validates: Requirements 2.2**
 
-**Task 2: Message Protocol Layer**
-- Message serialization/deserialization working
-- CRC32 checksum validation functional
-- Length-prefixed framing correct
-- Message size limits enforced
-- Property tests for protocol passing
+**Property 9: Token Inclusion in Requests**
+*For any* authenticated request, the message should include the current valid Auth_Token.
+**Validates: Requirements 2.3**
 
-**Task 3: Connection Management**
-- TCP connections establishing successfully
-- Connection pooling working (min/max connections)
-- Connection reuse functional
-- Health monitoring operational
-- Retry logic with exponential backoff working
-- Graceful shutdown implemented
-- Protocol negotiation functional
-- Property tests for connections passing
+**Property 10: Automatic Re-authentication**
+*For any* expired token, the next request should trigger automatic re-authentication before executing the request.
+**Validates: Requirements 2.4**
 
-#### Actions to Take
+**Property 11: Token Invalidation on Logout**
+*For any* valid token, calling logout() should invalidate the token such that subsequent requests with that token fail authentication.
+**Validates: Requirements 2.6**
 
-1. **Run Full Test Suite**
-   ```bash
-   cd rust/client-sdk
-   cargo test --all-features
-   ```
+**Property 12: Token TTL Respect**
+*For any* configured token TTL, tokens should expire after exactly that duration from issuance.
+**Validates: Requirements 2.8**
 
-2. **Run Property-Based Tests**
-   ```bash
-   cargo test --all-features -- --include-ignored
-   ```
-
-3. **Check for Warnings**
-   ```bash
-   cargo clippy --all-features
-   ```
-
-4. **Review Test Output**
-   - Identify any failing tests
-   - Document any issues found
-   - Determine if issues are blockers
-
-5. **User Consultation**
-   - If all tests pass: Confirm readiness to proceed to Task 5 (Authentication)
-   - If tests fail: Discuss issues with user and determine resolution approach
-   - If questions arise: Ask user for clarification or guidance
+**Property 7: Protocol Selection Priority**
+*For any* set of mutually supported protocols, the client should select the protocol with highest priority (TLS > TCP > UDP).
+**Validates: Requirements 1.8**
 
 ---
 
