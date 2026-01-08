@@ -5,6 +5,7 @@
 
 use crate::error::DatabaseError;
 use crate::types::{NodeId, Timestamp};
+use crate::connection::ProtocolType;
 use crc32fast::Hasher;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -281,6 +282,52 @@ impl Default for MessageCodec {
     }
 }
 
+/// Protocol negotiation for selecting the best protocol
+///
+/// Handles protocol selection between client and server based on
+/// mutually supported protocols and priority ordering.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProtocolNegotiation {
+    /// List of protocols supported by the client
+    pub supported_protocols: Vec<ProtocolType>,
+    /// Preferred protocol (highest priority)
+    pub preferred_protocol: ProtocolType,
+}
+
+impl ProtocolNegotiation {
+    /// Creates a new protocol negotiation with the given supported protocols
+    pub fn new(supported_protocols: Vec<ProtocolType>) -> Self {
+        let preferred_protocol = ProtocolType::select_best(&supported_protocols)
+            .unwrap_or(ProtocolType::TCP);
+
+        Self {
+            supported_protocols,
+            preferred_protocol,
+        }
+    }
+
+    /// Selects the best protocol from client and server supported protocols
+    ///
+    /// Returns the highest priority protocol that both client and server support.
+    pub fn select_protocol(
+        client_protocols: &[ProtocolType],
+        server_protocols: &[ProtocolType],
+    ) -> Option<ProtocolType> {
+        // Find intersection of supported protocols
+        let mut common: Vec<ProtocolType> = client_protocols
+            .iter()
+            .filter(|p| server_protocols.contains(p))
+            .copied()
+            .collect();
+
+        // Sort by priority (highest first)
+        common.sort_by_key(|p| std::cmp::Reverse(p.priority()));
+
+        // Return highest priority protocol
+        common.first().copied()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -524,6 +571,52 @@ mod tests {
         assert!(buffer.len() >= 4);
         let length = u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
         assert_eq!(length, buffer.len() - 4);
+    }
+
+    // ProtocolNegotiation Tests
+    #[test]
+    fn test_protocol_negotiation_creation() {
+        let protocols = vec![ProtocolType::TCP, ProtocolType::TLS];
+        let negotiation = ProtocolNegotiation::new(protocols.clone());
+
+        assert_eq!(negotiation.supported_protocols, protocols);
+        assert_eq!(negotiation.preferred_protocol, ProtocolType::TLS);
+    }
+
+    #[test]
+    fn test_protocol_negotiation_select_protocol() {
+        let client = vec![ProtocolType::TCP, ProtocolType::UDP];
+        let server = vec![ProtocolType::TCP, ProtocolType::TLS];
+
+        let selected = ProtocolNegotiation::select_protocol(&client, &server);
+        assert_eq!(selected, Some(ProtocolType::TCP));
+    }
+
+    #[test]
+    fn test_protocol_negotiation_select_tls_priority() {
+        let client = vec![ProtocolType::TCP, ProtocolType::TLS, ProtocolType::UDP];
+        let server = vec![ProtocolType::TCP, ProtocolType::TLS];
+
+        let selected = ProtocolNegotiation::select_protocol(&client, &server);
+        assert_eq!(selected, Some(ProtocolType::TLS));
+    }
+
+    #[test]
+    fn test_protocol_negotiation_no_common_protocol() {
+        let client = vec![ProtocolType::TCP];
+        let server = vec![ProtocolType::UDP];
+
+        let selected = ProtocolNegotiation::select_protocol(&client, &server);
+        assert_eq!(selected, None);
+    }
+
+    #[test]
+    fn test_protocol_negotiation_empty_lists() {
+        let client = vec![];
+        let server = vec![ProtocolType::TCP];
+
+        let selected = ProtocolNegotiation::select_protocol(&client, &server);
+        assert_eq!(selected, None);
     }
 }
 

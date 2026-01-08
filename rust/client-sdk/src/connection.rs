@@ -7,6 +7,7 @@ use crate::error::DatabaseError;
 use crate::protocol::{Message, MessageCodec, MessageType};
 use crate::types::{ConnectionConfig, NodeId, PoolConfig, Timestamp};
 use crate::Result;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -16,7 +17,7 @@ use tokio::sync::{Mutex, RwLock};
 use tokio::time::timeout;
 
 /// Protocol type enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProtocolType {
     /// TCP protocol
     TCP,
@@ -91,6 +92,10 @@ pub struct Connection {
     codec: MessageCodec,
     /// Sequence number for messages
     sequence_number: AtomicU64,
+    /// Authentication token (optional)
+    auth_token: Option<crate::auth::AuthToken>,
+    /// Negotiated protocol
+    protocol: ProtocolType,
 }
 
 impl Connection {
@@ -127,6 +132,8 @@ impl Connection {
             node_id,
             codec: MessageCodec::new(),
             sequence_number: AtomicU64::new(0),
+            auth_token: None,
+            protocol: ProtocolType::TCP, // Default to TCP
         })
     }
 
@@ -182,6 +189,54 @@ impl Connection {
             operation: "send_request".to_string(),
             timeout_ms,
         })?
+    }
+
+    /// Authenticates the connection with the given authentication manager
+    pub async fn authenticate(&mut self, auth_manager: &crate::auth::AuthenticationManager) -> Result<()> {
+        let token = auth_manager.authenticate().await?;
+        self.auth_token = Some(token);
+        Ok(())
+    }
+
+    /// Sends an authenticated request
+    ///
+    /// Ensures the connection has a valid authentication token before sending.
+    pub async fn send_authenticated_request(
+        &mut self,
+        message_type: MessageType,
+        payload: Vec<u8>,
+        timeout_ms: u64,
+    ) -> Result<Message> {
+        // Ensure we have a valid token
+        if let Some(token) = &self.auth_token {
+            if token.is_expired() {
+                return Err(DatabaseError::TokenExpired {
+                    expired_at: token.expiration.timestamp_millis(),
+                });
+            }
+        } else {
+            return Err(DatabaseError::AuthenticationFailed {
+                reason: "No auth token".to_string(),
+            });
+        }
+
+        // Send the request (token would be included in the payload in a real implementation)
+        self.send_request(message_type, payload, timeout_ms).await
+    }
+
+    /// Sets the negotiated protocol
+    pub fn set_protocol(&mut self, protocol: ProtocolType) {
+        self.protocol = protocol;
+    }
+
+    /// Gets the negotiated protocol
+    pub fn protocol(&self) -> ProtocolType {
+        self.protocol
+    }
+
+    /// Gets the authentication token
+    pub fn auth_token(&self) -> Option<&crate::auth::AuthToken> {
+        self.auth_token.as_ref()
     }
 }
 

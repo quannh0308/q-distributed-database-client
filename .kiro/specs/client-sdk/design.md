@@ -41,391 +41,531 @@ Q-Distributed-Database Cluster
 
 ## Current Task Design
 
-### Task 5: Implement Authentication
+### Task 6: Implement Data Client for CRUD Operations
 
-This task implements the authentication system for the Client SDK, including token-based authentication, automatic re-authentication, and protocol negotiation.
+This task implements the DataClient component that handles all CRUD (Create, Read, Update, Delete) operations on database tables.
 
 #### Design Overview
 
-The authentication system consists of three main components:
+The DataClient is the primary interface for executing database operations. It manages:
 
-1. **Credentials and AuthToken Structures**: Data structures for storing authentication information
-2. **AuthenticationManager**: Core component managing authentication lifecycle
-3. **Protocol Negotiation**: System for selecting the best available protocol
+1. **Connection Acquisition**: Gets connections from the ConnectionManager
+2. **Authentication**: Uses AuthenticationManager to ensure valid tokens
+3. **Query Execution**: Sends SQL queries to the database
+4. **Result Processing**: Parses and returns query results
+5. **Prepared Statements**: Caches prepared statements for performance
+6. **Batch Operations**: Groups multiple operations for efficiency
+7. **Streaming**: Handles large result sets with bounded memory
 
 #### Component Design
 
-**1. Credentials Structure**
+**1. DataClient Structure**
 
-Stores authentication credentials for connecting to the database:
+The main struct that handles all data operations:
 
 ```rust
-pub struct Credentials {
-    pub username: String,
-    pub password: Option<String>,
-    pub certificate: Option<Certificate>,
-    pub token: Option<String>,
+pub struct DataClient {
+    connection_manager: Arc<ConnectionManager>,
+    auth_manager: Arc<AuthenticationManager>,
+    prepared_statements: Arc<RwLock<HashMap<String, PreparedStatement>>>,
+}
+
+impl DataClient {
+    pub fn new(
+        connection_manager: Arc<ConnectionManager>,
+        auth_manager: Arc<AuthenticationManager>
+    ) -> Self {
+        Self {
+            connection_manager,
+            auth_manager,
+            prepared_statements: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+    
+    pub async fn execute(&self, sql: &str) -> Result<ExecuteResult>;
+    pub async fn execute_with_params(&self, sql: &str, params: &[Value]) -> Result<ExecuteResult>;
+    pub async fn query(&self, sql: &str) -> Result<QueryResult>;
+    pub async fn query_with_params(&self, sql: &str, params: &[Value]) -> Result<QueryResult>;
+    pub async fn query_stream(&self, sql: &str) -> Result<ResultStream>;
+    pub async fn prepare(&self, sql: &str) -> Result<PreparedStatement>;
+    pub async fn begin_transaction(&self) -> Result<Transaction>;
 }
 ```
 
 **Fields:**
-- `username`: Required username for authentication
-- `password`: Optional password (used for username/password auth)
-- `certificate`: Optional certificate (used for TLS certificate auth)
-- `token`: Optional pre-existing token (for token reuse)
+- `connection_manager`: Manages connection pool and node health
+- `auth_manager`: Handles authentication and token management
+- `prepared_statements`: Cache of prepared statements for reuse
 
-**2. AuthToken Structure**
+**2. Execute Operations**
 
-Represents an authentication token issued by the server:
+Execute operations are used for INSERT, UPDATE, DELETE statements:
 
 ```rust
-pub struct AuthToken {
-    pub user_id: UserId,
-    pub roles: Vec<Role>,
-    pub expiration: DateTime<Utc>,
-    pub signature: Vec<u8>,
+pub async fn execute(&self, sql: &str) -> Result<ExecuteResult> {
+    self.execute_with_params(sql, &[]).await
 }
 
-impl AuthToken {
-    pub fn is_expired(&self) -> bool {
-        Utc::now() > self.expiration
-    }
+pub async fn execute_with_params(&self, sql: &str, params: &[Value]) -> Result<ExecuteResult> {
+    // 1. Get connection from pool
+    let mut conn = self.connection_manager.get_connection().await?;
     
-    pub fn time_until_expiration(&self) -> Duration {
-        (self.expiration - Utc::now()).to_std().unwrap_or(Duration::ZERO)
+    // 2. Get valid auth token
+    let token = self.auth_manager.get_valid_token(&mut conn).await?;
+    
+    // 3. Build execute request
+    let request = Request::Execute(ExecuteRequest {
+        sql: sql.to_string(),
+        params: params.to_vec(),
+        prepared_statement_id: None,
+        auth_token: Some(token),
+    });
+    
+    // 4. Send request and receive response
+    let response = conn.send_request(request).await?;
+    
+    // 5. Parse response
+    match response {
+        Response::Execute(result) => Ok(result),
+        Response::Error(err) => Err(err.into()),
+        _ => Err(DatabaseError::ProtocolError { 
+            message: "Unexpected response type".to_string() 
+        }),
     }
 }
 ```
 
-**Fields:**
-- `user_id`: Unique identifier for the authenticated user
-- `roles`: List of roles/permissions assigned to the user
-- `expiration`: Timestamp when the token expires
-- `signature`: Cryptographic signature for token validation
-
-**Methods:**
-- `is_expired()`: Check if token has expired
-- `time_until_expiration()`: Calculate remaining time before expiration
-
-**3. AuthenticationManager**
-
-Manages the authentication lifecycle:
-
+**ExecuteResult Structure:**
 ```rust
-pub struct AuthenticationManager {
-    credentials: Credentials,
-    token: Arc<RwLock<Option<AuthToken>>>,
-    token_ttl: Duration,
-}
-
-impl AuthenticationManager {
-    pub fn new(credentials: Credentials, token_ttl: Duration) -> Self;
-    
-    pub async fn authenticate(&self, conn: &mut Connection) -> Result<AuthToken>;
-    
-    pub async fn get_valid_token(&self, conn: &mut Connection) -> Result<AuthToken>;
-    
-    pub async fn refresh_token(&self, conn: &mut Connection) -> Result<AuthToken>;
-    
-    pub async fn logout(&self, conn: &mut Connection) -> Result<()>;
-    
-    fn is_token_expired(&self, token: &AuthToken) -> bool;
+pub struct ExecuteResult {
+    pub rows_affected: u64,
+    pub last_insert_id: Option<i64>,
 }
 ```
 
-**Methods:**
+**3. Query Operations**
 
-- `new()`: Create new AuthenticationManager with credentials and TTL
-- `authenticate()`: Send authentication request to server and receive token
-  - Build AuthRequest message with username/password
-  - Send request through connection
-  - Parse AuthResponse and extract token
-  - Store token in internal state
-  - Return token to caller
+Query operations are used for SELECT statements:
 
-- `get_valid_token()`: Return valid token or re-authenticate if expired
-  - Check if token exists and is not expired
-  - If valid, return existing token
-  - If expired or missing, call authenticate() to get new token
-  - Return new token
+```rust
+pub async fn query(&self, sql: &str) -> Result<QueryResult> {
+    self.query_with_params(sql, &[]).await
+}
 
-- `refresh_token()`: Proactively renew token before expiration
-  - Send token refresh request to server
-  - Receive new token with extended expiration
-  - Update stored token
-  - Return new token
+pub async fn query_with_params(&self, sql: &str, params: &[Value]) -> Result<QueryResult> {
+    // 1. Get connection from pool
+    let mut conn = self.connection_manager.get_connection().await?;
+    
+    // 2. Get valid auth token
+    let token = self.auth_manager.get_valid_token(&mut conn).await?;
+    
+    // 3. Build query request
+    let request = Request::Query(QueryRequest {
+        sql: sql.to_string(),
+        params: params.to_vec(),
+        prepared_statement_id: None,
+        auth_token: Some(token),
+    });
+    
+    // 4. Send request and receive response
+    let response = conn.send_request(request).await?;
+    
+    // 5. Parse response
+    match response {
+        Response::Query(result) => {
+            // Convert server response to QueryResult
+            Ok(QueryResult {
+                columns: result.columns,
+                rows: result.rows.into_iter()
+                    .map(|values| Row { values })
+                    .collect(),
+            })
+        },
+        Response::Error(err) => Err(err.into()),
+        _ => Err(DatabaseError::ProtocolError { 
+            message: "Unexpected response type".to_string() 
+        }),
+    }
+}
+```
 
-- `logout()`: Invalidate token on server
-  - Send logout request with current token
-  - Server marks token as invalid
-  - Clear stored token locally
-  - Return success
+**QueryResult Structure:**
+```rust
+pub struct QueryResult {
+    pub columns: Vec<ColumnMetadata>,
+    pub rows: Vec<Row>,
+}
 
-- `is_token_expired()`: Check if token has expired
-  - Compare token expiration with current time
-  - Return true if expired, false otherwise
+pub struct ColumnMetadata {
+    pub name: String,
+    pub data_type: DataType,
+    pub nullable: bool,
+}
 
-**Authentication Flow:**
+pub struct Row {
+    values: Vec<Value>,
+}
 
+impl Row {
+    pub fn get(&self, index: usize) -> Option<&Value> {
+        self.values.get(index)
+    }
+    
+    pub fn get_by_name(&self, name: &str, columns: &[ColumnMetadata]) -> Option<&Value> {
+        columns.iter()
+            .position(|col| col.name == name)
+            .and_then(|idx| self.values.get(idx))
+    }
+}
+```
+
+**4. Streaming Results**
+
+For large result sets, streaming avoids loading all data into memory:
+
+```rust
+pub async fn query_stream(&self, sql: &str) -> Result<ResultStream> {
+    // 1. Get connection from pool
+    let mut conn = self.connection_manager.get_connection().await?;
+    
+    // 2. Get valid auth token
+    let token = self.auth_manager.get_valid_token(&mut conn).await?;
+    
+    // 3. Build streaming query request
+    let request = Request::Query(QueryRequest {
+        sql: sql.to_string(),
+        params: vec![],
+        prepared_statement_id: None,
+        auth_token: Some(token),
+        streaming: true,  // Enable streaming mode
+    });
+    
+    // 4. Send request
+    conn.send_message(request.into()).await?;
+    
+    // 5. Return stream that will fetch rows incrementally
+    Ok(ResultStream::new(conn))
+}
+
+pub struct ResultStream {
+    connection: PooledConnection,
+    columns: Option<Vec<ColumnMetadata>>,
+    finished: bool,
+}
+
+impl ResultStream {
+    pub async fn next(&mut self) -> Result<Option<Row>> {
+        if self.finished {
+            return Ok(None);
+        }
+        
+        // Receive next message from server
+        let message = self.connection.receive_message().await?;
+        
+        match message.message_type {
+            MessageType::Data => {
+                // Parse row data
+                let row = parse_row(&message.payload)?;
+                Ok(Some(row))
+            },
+            MessageType::Ack => {
+                // End of stream
+                self.finished = true;
+                Ok(None)
+            },
+            MessageType::Error => {
+                let error = parse_error(&message.payload)?;
+                Err(error)
+            },
+            _ => Err(DatabaseError::ProtocolError {
+                message: "Unexpected message type in stream".to_string()
+            }),
+        }
+    }
+}
+```
+
+**5. Batch Operations**
+
+Batch operations group multiple statements for atomic execution:
+
+```rust
+pub async fn batch(&self) -> Result<BatchContext> {
+    // Get connection from pool
+    let conn = self.connection_manager.get_connection().await?;
+    
+    Ok(BatchContext {
+        connection: conn,
+        auth_manager: self.auth_manager.clone(),
+        operations: Vec::new(),
+    })
+}
+
+pub struct BatchContext {
+    connection: PooledConnection,
+    auth_manager: Arc<AuthenticationManager>,
+    operations: Vec<BatchOperation>,
+}
+
+impl BatchContext {
+    pub fn add_execute(&mut self, sql: &str, params: &[Value]) {
+        self.operations.push(BatchOperation::Execute {
+            sql: sql.to_string(),
+            params: params.to_vec(),
+        });
+    }
+    
+    pub async fn execute(mut self) -> Result<Vec<ExecuteResult>> {
+        // 1. Get valid auth token
+        let token = self.auth_manager.get_valid_token(&mut self.connection).await?;
+        
+        // 2. Build batch request
+        let request = Request::Batch(BatchRequest {
+            operations: self.operations,
+            auth_token: Some(token),
+        });
+        
+        // 3. Send request and receive response
+        let response = self.connection.send_request(request).await?;
+        
+        // 4. Parse response
+        match response {
+            Response::Batch(results) => Ok(results),
+            Response::Error(err) => Err(err.into()),
+            _ => Err(DatabaseError::ProtocolError {
+                message: "Unexpected response type".to_string()
+            }),
+        }
+    }
+}
+```
+
+**6. Prepared Statements**
+
+Prepared statements are cached for performance:
+
+```rust
+pub async fn prepare(&self, sql: &str) -> Result<PreparedStatement> {
+    // Check cache first
+    {
+        let cache = self.prepared_statements.read().await;
+        if let Some(stmt) = cache.get(sql) {
+            return Ok(stmt.clone());
+        }
+    }
+    
+    // Not in cache, prepare on server
+    let mut conn = self.connection_manager.get_connection().await?;
+    let token = self.auth_manager.get_valid_token(&mut conn).await?;
+    
+    let request = Request::Prepare(PrepareRequest {
+        sql: sql.to_string(),
+        auth_token: Some(token),
+    });
+    
+    let response = conn.send_request(request).await?;
+    
+    match response {
+        Response::Prepare(stmt) => {
+            // Add to cache
+            let mut cache = self.prepared_statements.write().await;
+            cache.insert(sql.to_string(), stmt.clone());
+            Ok(stmt)
+        },
+        Response::Error(err) => Err(err.into()),
+        _ => Err(DatabaseError::ProtocolError {
+            message: "Unexpected response type".to_string()
+        }),
+    }
+}
+
+pub struct PreparedStatement {
+    pub statement_id: StatementId,
+    pub sql: String,
+    pub param_count: usize,
+}
+```
+
+#### Request/Response Flow
+
+**Execute Flow:**
 ```
 Client                          Server
   │                               │
-  ├─── AuthRequest ──────────────>│
-  │    (username, password)       │
+  ├─── ExecuteRequest ───────────>│
+  │    (SQL, params, token)       │
   │                               │
-  │<─── AuthResponse ─────────────┤
-  │    (AuthToken)                │
+  │<─── ExecuteResponse ──────────┤
+  │    (rows_affected, insert_id) │
+```
+
+**Query Flow:**
+```
+Client                          Server
   │                               │
   ├─── QueryRequest ─────────────>│
-  │    (with AuthToken)           │
+  │    (SQL, params, token)       │
   │                               │
   │<─── QueryResponse ────────────┤
+  │    (columns, rows)            │
+```
+
+**Streaming Flow:**
+```
+Client                          Server
   │                               │
   ├─── QueryRequest ─────────────>│
-  │    (expired token)            │
+  │    (SQL, streaming=true)      │
   │                               │
-  │<─── AuthError ────────────────┤
-  │    (token expired)            │
+  │<─── Data ─────────────────────┤
+  │    (row 1)                    │
   │                               │
-  ├─── AuthRequest ──────────────>│
-  │    (re-authenticate)          │
+  │<─── Data ─────────────────────┤
+  │    (row 2)                    │
   │                               │
-  │<─── AuthResponse ─────────────┤
-  │    (new AuthToken)            │
+  │<─── Ack ──────────────────────┤
+  │    (end of stream)            │
 ```
 
-**4. Protocol Negotiation**
-
-Implements protocol selection with priority:
-
-```rust
-pub enum ProtocolType {
-    TCP = 1,
-    UDP = 2,
-    TLS = 3,
-}
-
-impl ProtocolType {
-    pub fn priority(&self) -> u8 {
-        match self {
-            ProtocolType::TLS => 3,  // Highest priority
-            ProtocolType::TCP => 2,
-            ProtocolType::UDP => 1,  // Lowest priority
-        }
-    }
-}
-
-pub struct ProtocolNegotiation {
-    pub supported_protocols: Vec<ProtocolType>,
-    pub preferred_protocol: ProtocolType,
-}
-
-impl ProtocolNegotiation {
-    pub fn select_protocol(
-        client_protocols: &[ProtocolType],
-        server_protocols: &[ProtocolType]
-    ) -> Option<ProtocolType> {
-        // Find intersection of supported protocols
-        let mut common: Vec<_> = client_protocols
-            .iter()
-            .filter(|p| server_protocols.contains(p))
-            .collect();
-        
-        // Sort by priority (highest first)
-        common.sort_by_key(|p| std::cmp::Reverse(p.priority()));
-        
-        // Return highest priority protocol
-        common.first().map(|&&p| p)
-    }
-}
+**Batch Flow:**
 ```
-
-**Protocol Selection Logic:**
-1. Client sends list of supported protocols
-2. Server responds with its supported protocols
-3. Client calculates intersection of both lists
-4. Client selects protocol with highest priority
-5. Connection uses selected protocol
-
-**Priority Order:**
-- TLS (priority 3): Most secure, preferred when available
-- TCP (priority 2): Reliable, good default
-- UDP (priority 1): Fast but unreliable, lowest priority
-
-#### Integration with Existing Components
-
-**Connection Integration:**
-
-The Connection struct will be updated to include authentication:
-
-```rust
-pub struct Connection {
-    socket: TcpStream,
-    node_id: NodeId,
-    codec: MessageCodec,
-    sequence_number: AtomicU64,
-    auth_token: Option<AuthToken>,  // NEW: Store auth token
-    protocol: ProtocolType,          // NEW: Store negotiated protocol
-}
-
-impl Connection {
-    pub async fn authenticate(&mut self, auth_manager: &AuthenticationManager) -> Result<()> {
-        let token = auth_manager.authenticate(self).await?;
-        self.auth_token = Some(token);
-        Ok(())
-    }
-    
-    pub async fn send_authenticated_request(&mut self, request: Request) -> Result<Response> {
-        // Ensure we have a valid token
-        if let Some(token) = &self.auth_token {
-            if token.is_expired() {
-                // Token expired, need to re-authenticate
-                return Err(DatabaseError::TokenExpired { 
-                    expired_at: token.expiration 
-                });
-            }
-        } else {
-            return Err(DatabaseError::AuthenticationFailed { 
-                reason: "No auth token".to_string() 
-            });
-        }
-        
-        // Include token in request
-        let mut request = request;
-        request.auth_token = self.auth_token.clone();
-        
-        self.send_request(request).await
-    }
-}
-```
-
-**Client Integration:**
-
-The main Client will initialize AuthenticationManager:
-
-```rust
-impl Client {
-    pub async fn connect(config: ConnectionConfig) -> Result<Self> {
-        // Create authentication manager
-        let credentials = Credentials {
-            username: config.username.clone(),
-            password: config.password.clone(),
-            certificate: config.certificate.clone(),
-            token: None,
-        };
-        let auth_manager = Arc::new(AuthenticationManager::new(
-            credentials,
-            Duration::from_secs(config.token_ttl_seconds.unwrap_or(86400))
-        ));
-        
-        // Create connection manager
-        let connection_manager = Arc::new(ConnectionManager::new(config.clone()));
-        
-        // Get initial connection and authenticate
-        let mut conn = connection_manager.get_connection().await?;
-        auth_manager.authenticate(&mut conn).await?;
-        connection_manager.return_connection(conn);
-        
-        // Create data and admin clients
-        let data_client = DataClient::new(
-            connection_manager.clone(),
-            auth_manager.clone()
-        );
-        let admin_client = AdminClient::new(
-            connection_manager.clone(),
-            auth_manager.clone()
-        );
-        
-        Ok(Self {
-            config,
-            connection_manager,
-            auth_manager,
-            data_client,
-            admin_client,
-        })
-    }
-}
+Client                          Server
+  │                               │
+  ├─── BatchRequest ─────────────>│
+  │    (operations[], token)      │
+  │                               │
+  │<─── BatchResponse ────────────┤
+  │    (results[])                │
 ```
 
 #### Error Handling
 
-**Authentication Errors:**
-
-```rust
-pub enum DatabaseError {
-    // ... existing variants ...
-    
-    // Authentication Errors
-    AuthenticationFailed { reason: String },
-    TokenExpired { expired_at: Timestamp },
-    InvalidCredentials,
-}
-```
+**Execute/Query Errors:**
+- `SyntaxError`: Invalid SQL syntax
+- `TableNotFound`: Referenced table doesn't exist
+- `ColumnNotFound`: Referenced column doesn't exist
+- `ConstraintViolation`: Constraint check failed
+- `AuthenticationFailed`: Invalid or expired token
+- `TimeoutError`: Operation exceeded timeout
 
 **Error Handling Strategy:**
-- `AuthenticationFailed`: Return immediately, do not retry
-- `TokenExpired`: Trigger automatic re-authentication
-- `InvalidCredentials`: Return immediately, do not retry
+1. Parse error response from server
+2. Convert to appropriate DatabaseError variant
+3. Include context (SQL, parameters) in error
+4. Return error to caller
+
+#### Integration with Existing Components
+
+**Connection Manager Integration:**
+```rust
+// DataClient uses ConnectionManager to get connections
+let mut conn = self.connection_manager.get_connection().await?;
+
+// Connection is automatically returned to pool when dropped
+```
+
+**Authentication Manager Integration:**
+```rust
+// DataClient uses AuthenticationManager for tokens
+let token = self.auth_manager.get_valid_token(&mut conn).await?;
+
+// Token is automatically refreshed if expired
+```
+
+**Client Integration:**
+```rust
+impl Client {
+    pub fn data(&self) -> &DataClient {
+        &self.data_client
+    }
+}
+
+// Usage:
+let result = client.data().query("SELECT * FROM users").await?;
+```
 
 #### Testing Strategy
 
 **Unit Tests:**
-- Test Credentials struct creation
-- Test AuthToken expiration checking
-- Test protocol priority ordering
-- Test protocol selection logic
+- Test ExecuteResult structure creation
+- Test QueryResult structure creation
+- Test Row access methods (get, get_by_name)
+- Test prepared statement caching
 
 **Property Tests:**
 
-**Property 8: Auth Token Structure**
-- Generate random successful authentication responses
-- Verify all required fields are present (user_id, roles, expiration, signature)
-- Verify fields have correct types
+**Property 13: Insert-Then-Retrieve Consistency**
+- Generate random records
+- Insert record using execute_with_params()
+- Query for record using query_with_params()
+- Verify returned values match inserted values
 
-**Property 9: Token Inclusion in Requests**
-- Generate random authenticated requests
-- Verify each request includes the auth token
-- Verify token is correctly serialized
+**Property 14: Update Visibility**
+- Generate random records and updates
+- Insert record, then update it
+- Query for record
+- Verify returned values match updated values
 
-**Property 10: Automatic Re-authentication**
-- Generate expired tokens
-- Simulate request with expired token
-- Verify re-authentication is triggered
-- Verify new token is obtained
+**Property 15: Delete Removes Record**
+- Generate random records
+- Insert record, then delete it
+- Query for record
+- Verify no results returned
 
-**Property 11: Token Invalidation on Logout**
-- Generate valid tokens
-- Call logout()
-- Verify subsequent requests with old token fail
-- Verify token is cleared locally
+**Property 16: Operation Result Structure**
+- Generate random operations
+- Execute operations
+- Verify result contains rows_affected or error details
 
-**Property 12: Token TTL Respect**
-- Generate tokens with various TTL values
-- Verify tokens expire at correct time
-- Verify expiration checking is accurate
+**Property 17: Batch Operation Atomicity**
+- Generate batch of operations with one that will fail
+- Execute batch
+- Verify either all succeed or all fail (no partial success)
 
-**Property 7: Protocol Selection Priority**
-- Generate various combinations of client/server protocols
-- Verify highest priority common protocol is selected
-- Verify TLS > TCP > UDP priority order
+**Property 35: Streaming Memory Efficiency**
+- Generate large result set
+- Stream results using query_stream()
+- Monitor memory usage
+- Verify memory remains bounded
+
+#### Performance Considerations
+
+**Connection Pooling:**
+- Reuse connections from pool
+- Avoid connection overhead per query
+- Return connections promptly
+
+**Prepared Statements:**
+- Cache prepared statements on client
+- Reduce server-side parsing overhead
+- Reuse parsed query plans
+
+**Batch Operations:**
+- Group multiple operations
+- Reduce network round trips
+- Improve throughput
+
+**Streaming:**
+- Process rows incrementally
+- Minimize memory usage
+- Support backpressure
 
 #### Implementation Notes
 
-**Security Considerations:**
-- Never log passwords or tokens
-- Clear sensitive data from memory after use
-- Use TLS for transmitting credentials
-- Validate token signatures on client side
+**Concurrency:**
+- DataClient is thread-safe (uses Arc for shared state)
+- Multiple queries can execute concurrently
+- Prepared statement cache uses RwLock for concurrent access
 
-**Performance Considerations:**
-- Cache tokens to avoid repeated authentication
-- Proactively refresh tokens before expiration
-- Use async operations to avoid blocking
+**Memory Management:**
+- Streaming results avoid loading all data
+- Connections returned to pool automatically
+- Prepared statement cache has bounded size
 
-**Concurrency Considerations:**
-- Use Arc<RwLock<>> for thread-safe token storage
-- Handle concurrent authentication requests
-- Ensure token updates are atomic
+**Error Recovery:**
+- Failed operations don't affect connection pool
+- Connections are validated before reuse
+- Automatic retry for transient errors
 
 ---
 

@@ -1,256 +1,264 @@
 # Automated Task Execution Cycle
 
-**Current Task**: 5 - Implement authentication
+**Current Task**: 6 - Implement data client for CRUD operations
 
 This is an automated 2-task cycle designed to minimize token consumption by loading only the current task context instead of the entire massive project specification.
 
 ## Tasks
 
-- [ ] 1. Execute Current Task (5): Implement authentication
-  - **Task Objective**: Implement the authentication system including token-based authentication, automatic re-authentication, and protocol negotiation
+- [ ] 1. Execute Current Task (6): Implement data client for CRUD operations
+  - **Task Objective**: Implement the DataClient component that handles all CRUD (Create, Read, Update, Delete) operations on database tables, including query execution, result handling, and batch operations
   
   - **Implementation Steps**:
     
-    **Step 1: Implement Credentials and AuthToken structs (Subtask 5.1)**
+    **Step 1: Implement DataClient struct (Subtask 6.1)**
     
-    1. **Create authentication module**
+    1. **Create DataClient in lib.rs**
+       ```rust
+       // Add to rust/client-sdk/src/lib.rs
+       pub mod data_client;
+       ```
+    
+    2. **Create data_client.rs module**
        ```bash
-       # Create new file: rust/client-sdk/src/auth.rs
+       # Create new file: rust/client-sdk/src/data_client.rs
        ```
     
-    2. **Define Credentials struct**
-       - Add fields: username (String), password (Option<String>), certificate (Option<Certificate>), token (Option<String>)
-       - Implement constructor and builder methods
-       - Add validation for required fields
+    3. **Define DataClient struct**
+       - Add fields: connection_manager (Arc<ConnectionManager>), auth_manager (Arc<AuthenticationManager>), prepared_statements (Arc<RwLock<HashMap<String, PreparedStatement>>>)
+       - Implement constructor new()
+       - Store references to ConnectionManager and AuthenticationManager
     
-    3. **Define AuthToken struct**
-       - Add fields: user_id (UserId), roles (Vec<Role>), expiration (DateTime<Utc>), signature (Vec<u8>)
-       - Implement `is_expired()` method to check expiration
-       - Implement `time_until_expiration()` method
-       - Add serde serialization/deserialization
+    4. **Define result types**
+       - Define ExecuteResult struct with rows_affected and last_insert_id
+       - Define QueryResult struct with columns and rows
+       - Define Row struct with values vector
+       - Define ColumnMetadata struct
     
-    4. **Add auth module to lib.rs**
-       ```rust
-       pub mod auth;
-       ```
+    _Requirements: 3.1, 3.2, 3.3, 3.4_
     
-    5. **Update types.rs with auth-related types**
-       - Define UserId type
-       - Define Role type
-       - Define Certificate type (placeholder for now)
+    **Step 2: Implement execute() and execute_with_params() (Subtask 6.2)**
     
-    _Requirements: 2.1, 2.2, 2.8_
+    1. **Implement execute() method**
+       - Call execute_with_params() with empty params array
+       - Return ExecuteResult
     
-    **Step 2: Write property test for auth token structure (Subtask 5.2)***
-    
-    1. **Add property test in auth.rs**
-       - Test that AuthToken contains all required fields
-       - Test that expiration checking works correctly
-       - Test that time_until_expiration is accurate
-       - **Property 8: Auth Token Structure**
-       - **Validates: Requirements 2.2**
-       - Minimum 100 iterations
-    
-    _Requirements: 2.2_
-    
-    **Step 3: Implement AuthenticationManager (Subtask 5.3)**
-    
-    1. **Define AuthenticationManager struct**
-       - Add fields: credentials (Credentials), token (Arc<RwLock<Option<AuthToken>>>), token_ttl (Duration)
-       - Use Arc<RwLock<>> for thread-safe token storage
-    
-    2. **Implement constructor**
-       ```rust
-       pub fn new(credentials: Credentials, token_ttl: Duration) -> Self
-       ```
-    
-    3. **Implement authenticate() method**
-       - Build AuthRequest message with username/password
+    2. **Implement execute_with_params() method**
+       - Get connection from ConnectionManager
+       - Get valid auth token from AuthenticationManager
+       - Build ExecuteRequest message with SQL and parameters
        - Send request through connection
-       - Parse AuthResponse and extract token
-       - Store token in internal state
-       - Return token to caller
+       - Parse ExecuteResponse and extract result
+       - Return ExecuteResult with rows_affected and last_insert_id
     
-    4. **Implement get_valid_token() method**
-       - Check if token exists and is not expired
-       - If valid, return existing token
-       - If expired or missing, call authenticate()
-       - Return token
+    3. **Handle errors**
+       - Convert server errors to DatabaseError
+       - Include SQL and parameters in error context
+       - Return connection to pool on error
     
-    5. **Implement refresh_token() method**
-       - Send token refresh request to server
-       - Receive new token with extended expiration
-       - Update stored token
-       - Return new token
+    _Requirements: 3.1, 3.3, 3.4, 3.5_
     
-    6. **Implement logout() method**
-       - Send logout request with current token
-       - Clear stored token locally
-       - Return success
+    **Step 3: Implement query() and query_with_params() (Subtask 6.3)**
     
-    7. **Implement is_token_expired() helper**
-       - Compare token expiration with current time
-       - Return true if expired, false otherwise
+    1. **Implement query() method**
+       - Call query_with_params() with empty params array
+       - Return QueryResult
     
-    _Requirements: 2.1, 2.2, 2.3, 2.4, 2.6_
+    2. **Implement query_with_params() method**
+       - Get connection from ConnectionManager
+       - Get valid auth token from AuthenticationManager
+       - Build QueryRequest message with SQL and parameters
+       - Send request through connection
+       - Parse QueryResponse and extract columns and rows
+       - Convert server response to QueryResult
+       - Return QueryResult
     
-    **Step 4: Write property test for token inclusion in requests (Subtask 5.4)***
+    3. **Implement Row access methods**
+       - Implement get() for index-based column access
+       - Implement get_by_name() for name-based column access
+       - Handle out-of-bounds and missing column errors
     
-    1. **Add property test in auth.rs**
-       - Generate random authenticated requests
-       - Verify each request includes the auth token
-       - Verify token is correctly serialized
-       - **Property 9: Token Inclusion in Requests**
-       - **Validates: Requirements 2.3**
+    _Requirements: 3.2, 3.5_
+    
+    **Step 4: Write property test for insert-then-retrieve consistency (Subtask 6.4)***
+    
+    1. **Add property test in data_client.rs**
+       - Generate random records
+       - Insert record using execute_with_params()
+       - Query for record using query_with_params()
+       - Verify returned values match inserted values
+       - **Property 13: Insert-Then-Retrieve Consistency**
+       - **Validates: Requirements 3.1, 3.2**
        - Minimum 100 iterations
     
-    _Requirements: 2.3_
+    _Requirements: 3.1, 3.2_
     
-    **Step 5: Write property test for automatic re-authentication (Subtask 5.5)***
+    **Step 5: Write property test for update visibility (Subtask 6.5)***
     
-    1. **Add property test in auth.rs**
-       - Generate expired tokens
-       - Simulate request with expired token
-       - Verify re-authentication is triggered
-       - Verify new token is obtained
-       - **Property 10: Automatic Re-authentication**
-       - **Validates: Requirements 2.4**
+    1. **Add property test in data_client.rs**
+       - Generate random records and updates
+       - Insert record, then update it
+       - Query for record
+       - Verify returned values match updated values
+       - **Property 14: Update Visibility**
+       - **Validates: Requirements 3.3**
        - Minimum 100 iterations
     
-    _Requirements: 2.4_
+    _Requirements: 3.3_
     
-    **Step 6: Write property test for token invalidation on logout (Subtask 5.6)***
+    **Step 6: Write property test for delete removes record (Subtask 6.6)***
     
-    1. **Add property test in auth.rs**
-       - Generate valid tokens
-       - Call logout()
-       - Verify subsequent requests with old token fail
-       - Verify token is cleared locally
-       - **Property 11: Token Invalidation on Logout**
-       - **Validates: Requirements 2.6**
+    1. **Add property test in data_client.rs**
+       - Generate random records
+       - Insert record, then delete it
+       - Query for record
+       - Verify no results returned
+       - **Property 15: Delete Removes Record**
+       - **Validates: Requirements 3.4**
        - Minimum 100 iterations
     
-    _Requirements: 2.6_
+    _Requirements: 3.4_
     
-    **Step 7: Write property test for token TTL respect (Subtask 5.7)***
+    **Step 7: Write property test for operation result structure (Subtask 6.7)***
     
-    1. **Add property test in auth.rs**
-       - Generate tokens with various TTL values
-       - Verify tokens expire at correct time
-       - Verify expiration checking is accurate
-       - **Property 12: Token TTL Respect**
-       - **Validates: Requirements 2.8**
+    1. **Add property test in data_client.rs**
+       - Generate random operations
+       - Execute operations
+       - Verify result contains rows_affected or error details
+       - **Property 16: Operation Result Structure**
+       - **Validates: Requirements 3.5**
        - Minimum 100 iterations
     
-    _Requirements: 2.8_
+    _Requirements: 3.5_
     
-    **Step 8: Implement protocol negotiation (Subtask 5.8)**
+    **Step 8: Implement query_stream() for streaming results (Subtask 6.8)**
     
-    1. **Define ProtocolType enum in protocol.rs**
-       ```rust
-       pub enum ProtocolType {
-           TCP = 1,
-           UDP = 2,
-           TLS = 3,
-       }
-       ```
+    1. **Define ResultStream struct**
+       - Add fields: connection, columns, finished
+       - Implement next() method to fetch rows incrementally
     
-    2. **Implement priority() method**
-       - TLS: priority 3 (highest)
-       - TCP: priority 2
-       - UDP: priority 1 (lowest)
+    2. **Implement query_stream() method**
+       - Get connection from ConnectionManager
+       - Get valid auth token from AuthenticationManager
+       - Build streaming QueryRequest
+       - Send request
+       - Return ResultStream
     
-    3. **Define ProtocolNegotiation struct**
-       - Add fields: supported_protocols (Vec<ProtocolType>), preferred_protocol (ProtocolType)
+    3. **Implement ResultStream::next()**
+       - Receive next message from server
+       - Parse row data or end-of-stream marker
+       - Return Option<Row>
+       - Handle backpressure
     
-    4. **Implement select_protocol() method**
-       - Find intersection of client and server protocols
-       - Sort by priority (highest first)
-       - Return highest priority protocol
+    _Requirements: 9.4_
     
-    5. **Add protocol field to Connection struct**
-       - Store negotiated protocol
-       - Use in connection establishment
+    **Step 9: Write property test for streaming memory efficiency (Subtask 6.9)***
     
-    _Requirements: 1.8_
-    
-    **Step 9: Write property test for protocol selection priority (Subtask 5.9)***
-    
-    1. **Add property test in protocol.rs**
-       - Generate various combinations of client/server protocols
-       - Verify highest priority common protocol is selected
-       - Verify TLS > TCP > UDP priority order
-       - **Property 7: Protocol Selection Priority**
-       - **Validates: Requirements 1.8**
+    1. **Add property test in data_client.rs**
+       - Generate large result set
+       - Stream results using query_stream()
+       - Monitor memory usage
+       - Verify memory remains bounded
+       - **Property 35: Streaming Memory Efficiency**
+       - **Validates: Requirements 9.4**
        - Minimum 100 iterations
     
-    _Requirements: 1.8_
+    _Requirements: 9.4_
     
-    **Step 10: Integration and Testing**
+    **Step 10: Implement batch operations (Subtask 6.10)**
     
-    1. **Update Connection struct**
-       - Add auth_token field
-       - Add protocol field
-       - Implement authenticate() method
-       - Implement send_authenticated_request() method
+    1. **Define BatchContext struct**
+       - Add fields: connection, auth_manager, operations
+       - Implement add_execute() to add operations
+       - Implement execute() to run batch atomically
     
-    2. **Update Client struct**
-       - Initialize AuthenticationManager
-       - Authenticate on initial connection
-       - Pass auth_manager to DataClient and AdminClient
+    2. **Implement batch() method in DataClient**
+       - Get connection from ConnectionManager
+       - Create BatchContext
+       - Return BatchContext
     
-    3. **Run all tests**
+    3. **Implement BatchContext::execute()**
+       - Get valid auth token
+       - Build BatchRequest with all operations
+       - Send request
+       - Parse BatchResponse
+       - Return results
+    
+    _Requirements: 3.6_
+    
+    **Step 11: Write property test for batch operation atomicity (Subtask 6.11)***
+    
+    1. **Add property test in data_client.rs**
+       - Generate batch of operations with one that will fail
+       - Execute batch
+       - Verify either all succeed or all fail (no partial success)
+       - **Property 17: Batch Operation Atomicity**
+       - **Validates: Requirements 3.6**
+       - Minimum 100 iterations
+    
+    _Requirements: 3.6_
+    
+    **Step 12: Integration and Testing**
+    
+    1. **Update Client struct**
+       - Add data_client field
+       - Initialize DataClient in connect()
+       - Implement data() accessor method
+    
+    2. **Run all tests**
        ```bash
        cd rust/client-sdk
        cargo test --all-features
        ```
     
-    4. **Run property tests**
+    3. **Run property tests**
        ```bash
        cargo test --all-features -- --include-ignored
        ```
     
-    5. **Check for warnings**
+    4. **Check for warnings**
        ```bash
        cargo clippy --all-features
        ```
   
   - **Success Criteria**:
-    - ✅ Credentials and AuthToken structs implemented
-    - ✅ Token expiration checking working
-    - ✅ AuthenticationManager fully implemented
-    - ✅ Automatic re-authentication working
-    - ✅ Logout functionality working
-    - ✅ Protocol negotiation implemented
-    - ✅ All property tests passing (Properties 7-12)
+    - ✅ DataClient struct implemented with all required fields
+    - ✅ execute() and execute_with_params() methods working
+    - ✅ query() and query_with_params() methods working
+    - ✅ Row access methods (get, get_by_name) working
+    - ✅ query_stream() implemented for large result sets
+    - ✅ batch() operations working atomically
+    - ✅ All property tests passing (Properties 13-17, 35)
     - ✅ All unit tests passing
     - ✅ Code compiles without errors
     - ✅ No critical warnings
   
   - **Subtasks**:
-    - [ ] 5.1 Implement Credentials and AuthToken structs
-    - [ ]* 5.2 Write property test for auth token structure
-    - [ ] 5.3 Implement AuthenticationManager
-    - [ ]* 5.4 Write property test for token inclusion in requests
-    - [ ]* 5.5 Write property test for automatic re-authentication
-    - [ ]* 5.6 Write property test for token invalidation on logout
-    - [ ]* 5.7 Write property test for token TTL respect
-    - [ ] 5.8 Implement protocol negotiation
-    - [ ]* 5.9 Write property test for protocol selection priority
+    - [ ] 6.1 Implement DataClient struct
+    - [ ] 6.2 Implement execute() and execute_with_params()
+    - [ ] 6.3 Implement query() and query_with_params()
+    - [ ]* 6.4 Write property test for insert-then-retrieve consistency
+    - [ ]* 6.5 Write property test for update visibility
+    - [ ]* 6.6 Write property test for delete removes record
+    - [ ]* 6.7 Write property test for operation result structure
+    - [ ] 6.8 Implement query_stream() for streaming results
+    - [ ]* 6.9 Write property test for streaming memory efficiency
+    - [ ] 6.10 Implement batch operations
+    - [ ]* 6.11 Write property test for batch operation atomicity
   
-  - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.6, 2.8, 1.8_
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 9.4_
 
-- [ ] 2. Complete and Setup Next Task: Mark Task 5 complete and setup Task 6 context
+- [ ] 2. Complete and Setup Next Task: Mark Task 6 complete and setup Task 7 context
   - **Automation Steps**:
-    1. Update FOUNDATION/tasks.md: Change `- [ ] 5` to `- [x] 5`
-    2. Identify Next Task: Task 6 - Implement data client for CRUD operations
-    3. Extract Context: Get CRUD requirements and design from FOUNDATION files
+    1. Update FOUNDATION/tasks.md: Change `- [ ] 6` to `- [x] 6`
+    2. Identify Next Task: Task 7 - Implement query builder
+    3. Extract Context: Get query builder requirements and design from FOUNDATION files
     4. Update Active Files:
-       - Update requirements.md with Task 6 context
-       - Update design.md with Task 6 context
-       - Update this tasks.md with new 2-task cycle for Task 6
-    5. Commit Changes: Create git commit documenting Task 5 completion
-  - **Expected Result**: Complete automation setup for Task 6 execution with minimal token consumption
+       - Update requirements.md with Task 7 context
+       - Update design.md with Task 7 context
+       - Update this tasks.md with new 2-task cycle for Task 7
+    5. Commit Changes: Create git commit documenting Task 6 completion
+  - **Expected Result**: Complete automation setup for Task 7 execution with minimal token consumption
 
 ---
 

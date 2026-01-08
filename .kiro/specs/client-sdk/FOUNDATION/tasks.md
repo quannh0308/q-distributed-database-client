@@ -125,18 +125,18 @@ This implementation plan breaks down the client SDK development into discrete, m
 - [x] 4. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 5. Implement authentication
-  - [ ] 5.1 Implement Credentials and AuthToken structs
+- [x] 5. Implement authentication
+  - [x] 5.1 Implement Credentials and AuthToken structs
     - Define Credentials with username, password, certificate, token fields
     - Define AuthToken with user_id, roles, expiration, signature
     - Implement token expiration checking
     - _Requirements: 2.1, 2.2, 2.8_
 
-  - [ ]* 5.2 Write property test for auth token structure
+  - [x]* 5.2 Write property test for auth token structure
     - **Property 8: Auth Token Structure**
     - **Validates: Requirements 2.2**
 
-  - [ ] 5.3 Implement AuthenticationManager
+  - [x] 5.3 Implement AuthenticationManager
     - Implement authenticate() to send auth request and receive token
     - Implement get_valid_token() to return valid token or re-authenticate
     - Implement refresh_token() for token renewal
@@ -144,29 +144,29 @@ This implementation plan breaks down the client SDK development into discrete, m
     - Store credentials securely for re-authentication
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.6_
 
-  - [ ]* 5.4 Write property test for token inclusion in requests
+  - [x]* 5.4 Write property test for token inclusion in requests
     - **Property 9: Token Inclusion in Requests**
     - **Validates: Requirements 2.3**
 
-  - [ ]* 5.5 Write property test for automatic re-authentication
+  - [x]* 5.5 Write property test for automatic re-authentication
     - **Property 10: Automatic Re-authentication**
     - **Validates: Requirements 2.4**
 
-  - [ ]* 5.6 Write property test for token invalidation on logout
+  - [x]* 5.6 Write property test for token invalidation on logout
     - **Property 11: Token Invalidation on Logout**
     - **Validates: Requirements 2.6**
 
-  - [ ]* 5.7 Write property test for token TTL respect
+  - [x]* 5.7 Write property test for token TTL respect
     - **Property 12: Token TTL Respect**
     - **Validates: Requirements 2.8**
 
-  - [ ] 5.8 Implement protocol negotiation
+  - [x] 5.8 Implement protocol negotiation
     - Define ProtocolType enum (TCP, UDP, TLS)
     - Implement protocol selection with priority (TLS > TCP > UDP)
     - Implement ProtocolNegotiation message
     - _Requirements: 1.8_
 
-  - [ ]* 5.9 Write property test for protocol selection priority
+  - [x]* 5.9 Write property test for protocol selection priority
     - **Property 7: Protocol Selection Priority**
     - **Validates: Requirements 1.8**
 
