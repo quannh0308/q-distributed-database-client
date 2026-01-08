@@ -30,10 +30,12 @@
 //! }
 //! ```
 
+pub mod connection;
 pub mod error;
 pub mod protocol;
 pub mod types;
 
+pub use connection::{Connection, ConnectionManager, ConnectionPool, NodeHealth, PooledConnection, ProtocolType};
 pub use error::DatabaseError;
 pub use protocol::{Message, MessageCodec, MessageType};
 pub use types::*;
