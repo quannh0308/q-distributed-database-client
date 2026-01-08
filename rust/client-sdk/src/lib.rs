@@ -31,13 +31,17 @@
 //! ```
 
 pub mod auth;
+pub mod client;
 pub mod connection;
+pub mod data_client;
 pub mod error;
 pub mod protocol;
 pub mod types;
 
 pub use auth::{AuthToken, AuthenticationManager, Certificate, Credentials};
+pub use client::Client;
 pub use connection::{Connection, ConnectionManager, ConnectionPool, NodeHealth, PooledConnection, ProtocolType};
+pub use data_client::{BatchContext, DataClient, ExecuteResult, PreparedStatement, QueryResult, ResultStream, Row};
 pub use error::DatabaseError;
 pub use protocol::{Message, MessageCodec, MessageType};
 pub use types::*;

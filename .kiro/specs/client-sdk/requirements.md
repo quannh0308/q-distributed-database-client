@@ -30,152 +30,127 @@ The Q-Distributed-Database Client SDK provides a multi-language client library f
 
 ## Current Task Requirements
 
-### Task 6: Implement Data Client for CRUD Operations
+### Task 7: Implement Query Builder
 
-This task implements the DataClient component that handles all CRUD (Create, Read, Update, Delete) operations on database tables, including query execution, result handling, and batch operations.
+This task implements the QueryBuilder component that provides a fluent API for constructing type-safe database queries with SQL injection prevention.
 
-#### Data Client Objectives
+#### Query Builder Objectives
 
-1. **Implement Core DataClient Structure**
-   - Create DataClient struct with connection manager and auth manager references
-   - Initialize prepared statement cache for query optimization
-   - Set up internal state management
+1. **Implement Fluent API**
+   - Create QueryBuilder struct with method chaining
+   - Implement select(), insert_into(), update(), delete_from() methods
+   - Implement from(), where_clause(), and(), or() methods
+   - Implement values(), set() for INSERT/UPDATE operations
+   - Implement build() to generate SQL and parameters
 
-2. **Implement Execute Operations**
-   - Implement execute() for SQL statements without parameters
-   - Implement execute_with_params() for parameterized SQL statements
-   - Handle INSERT, UPDATE, DELETE operations
-   - Return ExecuteResult with affected rows and last insert ID
+2. **Ensure SQL Injection Prevention**
+   - Always use parameterized queries
+   - Never concatenate user input into SQL
+   - Validate parameter binding
+   - Prevent SQL injection through proper escaping
 
-3. **Implement Query Operations**
-   - Implement query() for SELECT statements without parameters
-   - Implement query_with_params() for parameterized SELECT statements
-   - Parse QueryResult with columns and rows
-   - Handle result set metadata
-
-4. **Implement Streaming Results**
-   - Implement query_stream() for large result sets
-   - Return async stream of rows
-   - Implement backpressure handling
-   - Minimize memory usage
-
-5. **Implement Batch Operations**
-   - Implement batch() to create batch context
-   - Add multiple operations to batch
-   - Execute batch atomically
-   - Handle batch errors
+3. **Implement Prepared Statement Caching**
+   - Cache prepared statements by SQL string
+   - Reuse prepared statements for performance
+   - Implement prepare() method in DataClient
 
 #### Detailed Requirements
 
-**Requirement 3: Data Operations (CRUD)**
+**Requirement 4: Query Building and Execution**
 
-**User Story:** As a developer, I want to perform CRUD operations on database tables, so that I can manage application data.
-
-**Acceptance Criteria:**
-
-1. **Insert Operations (3.1)**
-   - WHEN creating records, THE Data_Client SHALL insert new rows into specified tables
-
-2. **Read Operations (3.2)**
-   - WHEN reading records, THE Data_Client SHALL retrieve rows matching query criteria
-
-3. **Update Operations (3.3)**
-   - WHEN updating records, THE Data_Client SHALL modify existing rows based on conditions
-
-4. **Delete Operations (3.4)**
-   - WHEN deleting records, THE Data_Client SHALL remove rows matching specified criteria
-
-5. **Operation Results (3.5)**
-   - WHEN operations complete, THE Data_Client SHALL return a Result_Set with affected rows or error details
-
-6. **Batch Operations (3.6)**
-   - WHERE batch operations are requested, THE Data_Client SHALL execute multiple operations efficiently
-
-**Requirement 9.4: Streaming Results**
+**User Story:** As a developer, I want to construct and execute database queries programmatically, so that I can retrieve data flexibly and safely from q-distributed-database.
 
 **Acceptance Criteria:**
 
-1. **Streaming Large Result Sets**
-   - WHEN handling large result sets, THE Client_SDK SHALL support streaming results to minimize memory usage
+1. **Query Construction (4.1)**
+   - WHEN building queries, THE Query_Builder SHALL provide a fluent API for constructing SELECT, INSERT, UPDATE, and DELETE statements compatible with q-distributed-database
+
+2. **Condition Logic (4.2)**
+   - WHEN adding conditions, THE Query_Builder SHALL support WHERE clauses with AND/OR logic
+
+3. **SQL Injection Prevention (4.3)**
+   - WHEN parameterizing queries, THE Query_Builder SHALL prevent SQL injection through parameter binding
+
+4. **Query Execution (4.4)**
+   - WHEN executing queries, THE Data_Client SHALL send the query to q-distributed-database and return results
+
+5. **Error Handling (4.5)**
+   - WHEN queries fail, THE Data_Client SHALL return detailed error information including error codes and messages
+
+6. **Complex Queries (4.6)**
+   - WHERE complex queries are needed, THE Query_Builder SHALL support JOINs, aggregations, and subqueries as supported by q-distributed-database
+
+7. **OLTP Optimization (4.7)**
+   - WHEN working with OLTP workloads, THE Query_Builder SHALL optimize for transactional queries
+
+8. **OLAP Optimization (4.8)**
+   - WHEN working with OLAP workloads, THE Query_Builder SHALL optimize for analytical queries
 
 #### Implementation Details
 
-**DataClient Structure:**
+**QueryBuilder Structure:**
 ```rust
-pub struct DataClient {
-    connection_manager: Arc<ConnectionManager>,
-    auth_manager: Arc<AuthenticationManager>,
-    prepared_statements: Arc<RwLock<HashMap<String, PreparedStatement>>>,
+pub struct QueryBuilder {
+    query_type: QueryType,
+    table: Option<String>,
+    columns: Vec<String>,
+    conditions: Vec<Condition>,
+    params: Vec<Value>,
 }
 ```
 
-**Execute Methods:**
+**Fluent API Methods:**
 ```rust
-pub async fn execute(&self, sql: &str) -> Result<ExecuteResult>;
-pub async fn execute_with_params(&self, sql: &str, params: &[Value]) -> Result<ExecuteResult>;
+pub fn select(columns: &[&str]) -> Self;
+pub fn insert_into(table: &str) -> Self;
+pub fn update(table: &str) -> Self;
+pub fn delete_from(table: &str) -> Self;
+
+pub fn from(mut self, table: &str) -> Self;
+pub fn where_clause(mut self, condition: &str, value: Value) -> Self;
+pub fn and(mut self, condition: &str, value: Value) -> Self;
+pub fn or(mut self, condition: &str, value: Value) -> Self;
+pub fn values(mut self, values: &[Value]) -> Self;
+pub fn set(mut self, column: &str, value: Value) -> Self;
+
+pub fn build(self) -> Result<(String, Vec<Value>)>;
 ```
 
-**Query Methods:**
+**Example Usage:**
 ```rust
-pub async fn query(&self, sql: &str) -> Result<QueryResult>;
-pub async fn query_with_params(&self, sql: &str, params: &[Value]) -> Result<QueryResult>;
-pub async fn query_stream(&self, sql: &str) -> Result<ResultStream>;
-```
-
-**Batch Operations:**
-```rust
-pub async fn batch(&self) -> Result<BatchContext>;
-```
-
-**Result Types:**
-```rust
-pub struct ExecuteResult {
-    pub rows_affected: u64,
-    pub last_insert_id: Option<i64>,
-}
-
-pub struct QueryResult {
-    pub columns: Vec<ColumnMetadata>,
-    pub rows: Vec<Row>,
-}
+let (sql, params) = QueryBuilder::select(&["id", "name", "email"])
+    .from("users")
+    .where_clause("age > ?", Value::Int(18))
+    .and("status = ?", Value::String("active".to_string()))
+    .build()?;
 ```
 
 #### Success Criteria
 
-- ✅ DataClient struct implemented with all required fields
-- ✅ execute() and execute_with_params() methods working
-- ✅ query() and query_with_params() methods working
-- ✅ query_stream() implemented for large result sets
-- ✅ batch() operations working atomically
-- ✅ All property tests passing (Properties 13-17, 35)
+- ✅ QueryBuilder struct implemented with fluent API
+- ✅ select(), insert_into(), update(), delete_from() methods working
+- ✅ from(), where_clause(), and(), or() methods working
+- ✅ values(), set() methods working for INSERT/UPDATE
+- ✅ build() method generates valid SQL with parameters
+- ✅ SQL injection prevention through parameterization
+- ✅ Prepared statement caching implemented
+- ✅ All property tests passing (Properties 18-20)
 - ✅ All unit tests passing
 - ✅ Code compiles without errors
 
-#### Property Tests for Task 6
+#### Property Tests for Task 7
 
-**Property 13: Insert-Then-Retrieve Consistency**
-*For any* successfully inserted record, immediately querying for that record should return it with the same values.
-**Validates: Requirements 3.1, 3.2**
+**Property 18: Query Builder Produces Valid SQL**
+*For any* valid sequence of query builder method calls, the resulting SQL should be syntactically valid.
+**Validates: Requirements 4.1**
 
-**Property 14: Update Visibility**
-*For any* successfully updated record, immediately querying for that record should return the updated values.
-**Validates: Requirements 3.3**
+**Property 19: Condition Logic Correctness**
+*For any* query with AND/OR conditions, the generated SQL should correctly represent the logical combination.
+**Validates: Requirements 4.2**
 
-**Property 15: Delete Removes Record**
-*For any* successfully deleted record, immediately querying for that record should return no results.
-**Validates: Requirements 3.4**
-
-**Property 16: Operation Result Structure**
-*For any* completed operation, the result should contain either affected row count or error details.
-**Validates: Requirements 3.5**
-
-**Property 17: Batch Operation Atomicity**
-*For any* batch of operations, either all operations succeed or all fail (no partial success).
-**Validates: Requirements 3.6**
-
-**Property 35: Streaming Memory Efficiency**
-*For any* large result set accessed via streaming, memory usage should remain bounded regardless of result set size.
-**Validates: Requirements 9.4**
+**Property 20: SQL Injection Prevention**
+*For any* parameter value containing SQL special characters, the parameterized query should treat it as data, not SQL code.
+**Validates: Requirements 4.3**
 
 ---
 

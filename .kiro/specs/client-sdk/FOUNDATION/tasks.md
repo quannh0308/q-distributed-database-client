@@ -170,57 +170,57 @@ This implementation plan breaks down the client SDK development into discrete, m
     - **Property 7: Protocol Selection Priority**
     - **Validates: Requirements 1.8**
 
-- [ ] 6. Implement data client for CRUD operations
-  - [ ] 6.1 Implement DataClient struct
+- [x] 6. Implement data client for CRUD operations
+  - [x] 6.1 Implement DataClient struct
     - Store references to ConnectionManager and AuthenticationManager
     - Initialize prepared statement cache
     - _Requirements: 3.1, 3.2, 3.3, 3.4_
 
-  - [ ] 6.2 Implement execute() and execute_with_params()
+  - [x] 6.2 Implement execute() and execute_with_params()
     - Build request message with SQL and parameters
     - Send request through connection
     - Parse ExecuteResult from response
     - _Requirements: 3.1, 3.3, 3.4, 3.5_
 
-  - [ ] 6.3 Implement query() and query_with_params()
+  - [x] 6.3 Implement query() and query_with_params()
     - Build query request message
     - Send request and receive response
     - Parse QueryResult with columns and rows
     - _Requirements: 3.2, 3.5_
 
-  - [ ]* 6.4 Write property test for insert-then-retrieve consistency
+  - [x]* 6.4 Write property test for insert-then-retrieve consistency
     - **Property 13: Insert-Then-Retrieve Consistency**
     - **Validates: Requirements 3.1, 3.2**
 
-  - [ ]* 6.5 Write property test for update visibility
+  - [x]* 6.5 Write property test for update visibility
     - **Property 14: Update Visibility**
     - **Validates: Requirements 3.3**
 
-  - [ ]* 6.6 Write property test for delete removes record
+  - [x]* 6.6 Write property test for delete removes record
     - **Property 15: Delete Removes Record**
     - **Validates: Requirements 3.4**
 
-  - [ ]* 6.7 Write property test for operation result structure
+  - [x]* 6.7 Write property test for operation result structure
     - **Property 16: Operation Result Structure**
     - **Validates: Requirements 3.5**
 
-  - [ ] 6.8 Implement query_stream() for streaming results
+  - [x] 6.8 Implement query_stream() for streaming results
     - Return async stream of rows
     - Implement backpressure handling
     - Minimize memory usage for large result sets
     - _Requirements: 9.4_
 
-  - [ ]* 6.9 Write property test for streaming memory efficiency
+  - [x]* 6.9 Write property test for streaming memory efficiency
     - **Property 35: Streaming Memory Efficiency**
     - **Validates: Requirements 9.4**
 
-  - [ ] 6.10 Implement batch operations
+  - [x] 6.10 Implement batch operations
     - Implement batch() to create batch context
     - Add multiple operations to batch
     - Execute batch atomically
     - _Requirements: 3.6_
 
-  - [ ]* 6.11 Write property test for batch operation atomicity
+  - [x]* 6.11 Write property test for batch operation atomicity
     - **Property 17: Batch Operation Atomicity**
     - **Validates: Requirements 3.6**
 
