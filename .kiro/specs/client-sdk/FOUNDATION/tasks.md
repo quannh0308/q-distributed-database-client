@@ -396,23 +396,23 @@ This implementation plan breaks down the client SDK development into discrete, m
     - **Property 30: Retry Exhaustion Returns Last Error**
     - **Validates: Requirements 8.5**
 
-- [ ] 13. Implement compression support
-  - [ ] 13.1 Add compression to MessageCodec
+- [x] 13. Implement compression support
+  - [x] 13.1 Add compression to MessageCodec
     - Implement compression using LZ4
     - Compress messages above threshold
     - Decompress received messages
     - _Requirements: 13.6_
 
-  - [ ]* 13.2 Write property test for compression threshold
+  - [x]* 13.2 Write property test for compression threshold
     - **Property 41: Compression Threshold**
     - **Validates: Requirements 13.6**
 
-  - [ ] 13.3 Implement feature negotiation
+  - [x] 13.3 Implement feature negotiation
     - Negotiate compression and heartbeat features
     - Store negotiated features in connection
     - _Requirements: 13.7_
 
-  - [ ]* 13.4 Write property test for feature negotiation
+  - [x]* 13.4 Write property test for feature negotiation
     - **Property 42: Feature Negotiation**
     - **Validates: Requirements 13.7**
 
