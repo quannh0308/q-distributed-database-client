@@ -128,6 +128,8 @@ pub struct Connection {
     auth_token: Option<crate::auth::AuthToken>,
     /// Negotiated protocol
     protocol: ProtocolType,
+    /// Negotiated features
+    negotiated_features: Vec<crate::types::Feature>,
 }
 
 impl Connection {
@@ -166,6 +168,56 @@ impl Connection {
             sequence_number: AtomicU64::new(0),
             auth_token: None,
             protocol: ProtocolType::TCP, // Default to TCP
+            negotiated_features: Vec::new(),
+        })
+    }
+
+    /// Creates a new connection with compression settings
+    pub async fn connect_with_config(
+        host: &str,
+        node_id: NodeId,
+        config: &ConnectionConfig,
+    ) -> Result<Self> {
+        let socket = timeout(
+            Duration::from_millis(config.timeout_ms),
+            TcpStream::connect(host),
+        )
+        .await
+        .map_err(|_| DatabaseError::ConnectionTimeout {
+            host: host.to_string(),
+            timeout_ms: config.timeout_ms,
+        })?
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::ConnectionRefused {
+                DatabaseError::ConnectionRefused {
+                    host: host.to_string(),
+                }
+            } else {
+                DatabaseError::NetworkError {
+                    details: format!("Failed to connect to {}: {}", host, e),
+                }
+            }
+        })?;
+
+        // Enable TCP_NODELAY for low latency
+        socket.set_nodelay(true).map_err(|e| DatabaseError::NetworkError {
+            details: format!("Failed to set TCP_NODELAY: {}", e),
+        })?;
+
+        // Create codec with compression settings
+        let codec = MessageCodec::with_compression(
+            config.compression_enabled,
+            config.compression_threshold,
+        );
+
+        Ok(Self {
+            socket,
+            node_id,
+            codec,
+            sequence_number: AtomicU64::new(0),
+            auth_token: None,
+            protocol: ProtocolType::TCP,
+            negotiated_features: Vec::new(),
         })
     }
 
@@ -269,6 +321,75 @@ impl Connection {
     /// Gets the authentication token
     pub fn auth_token(&self) -> Option<&crate::auth::AuthToken> {
         self.auth_token.as_ref()
+    }
+
+    /// Negotiates features with the server
+    ///
+    /// Sends the client's supported features and receives the server's supported features.
+    /// Returns the intersection of both feature sets.
+    pub async fn negotiate_features(
+        &mut self,
+        client_features: Vec<crate::types::Feature>,
+    ) -> Result<Vec<crate::types::Feature>> {
+        use crate::types::{Feature, FeatureNegotiation};
+
+        // Send feature negotiation request
+        let request_payload = bincode::serialize(&FeatureNegotiation {
+            supported_features: client_features.clone(),
+        })
+        .map_err(|e| DatabaseError::SerializationError {
+            message: format!("Failed to serialize feature negotiation: {}", e),
+        })?;
+
+        let seq = self.next_sequence_number();
+        let timestamp = chrono::Utc::now().timestamp_millis();
+
+        let request = Message::new(
+            0, // Client sender ID
+            self.node_id,
+            seq,
+            timestamp,
+            MessageType::FeatureNegotiation,
+            request_payload,
+        );
+
+        self.send_message(request).await?;
+
+        // Receive server's supported features
+        let response = self.receive_message().await?;
+
+        let server_features: FeatureNegotiation =
+            bincode::deserialize(&response.payload).map_err(|e| {
+                DatabaseError::SerializationError {
+                    message: format!("Failed to deserialize feature negotiation response: {}", e),
+                }
+            })?;
+
+        // Calculate intersection of features
+        let negotiated: Vec<Feature> = client_features
+            .into_iter()
+            .filter(|f| server_features.supported_features.contains(f))
+            .collect();
+
+        // Store negotiated features
+        self.negotiated_features = negotiated.clone();
+
+        // Update codec compression based on negotiated features
+        if !self.negotiated_features.contains(&Feature::Compression) {
+            self.codec.compression_enabled = false;
+        }
+
+        Ok(negotiated)
+    }
+
+    /// Checks if a feature has been negotiated
+    pub fn has_feature(&self, feature: &crate::types::Feature) -> bool {
+        self.negotiated_features.contains(feature)
+    }
+
+    /// Gets the negotiated features
+    pub fn negotiated_features(&self) -> &[crate::types::Feature] {
+        &self.negotiated_features
     }
 
     /// Sends a request with timeout and retry logic

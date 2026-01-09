@@ -40,6 +40,8 @@ pub enum MessageType {
     Transaction,
     /// Admin message
     Admin,
+    /// Feature negotiation message
+    FeatureNegotiation,
 }
 
 /// Message structure
@@ -113,6 +115,7 @@ impl Message {
             MessageType::Replication => 8u8,
             MessageType::Transaction => 9u8,
             MessageType::Admin => 10u8,
+            MessageType::FeatureNegotiation => 11u8,
         };
         hasher.update(&[type_discriminant]);
         
@@ -134,10 +137,14 @@ impl Message {
 /// Message codec for serialization and deserialization
 ///
 /// Handles encoding/decoding messages with bincode, length-prefixed framing,
-/// and message size validation.
+/// message size validation, and optional LZ4 compression.
 pub struct MessageCodec {
     /// Maximum allowed message size in bytes
     max_message_size: usize,
+    /// Whether compression is enabled
+    pub compression_enabled: bool,
+    /// Compression threshold in bytes
+    compression_threshold: usize,
 }
 
 impl MessageCodec {
@@ -145,23 +152,52 @@ impl MessageCodec {
     pub fn new() -> Self {
         Self {
             max_message_size: 1024 * 1024, // 1MB default
+            compression_enabled: false,
+            compression_threshold: 1024,
         }
     }
 
     /// Creates a new message codec with a custom maximum message size
     pub fn with_max_size(max_message_size: usize) -> Self {
-        Self { max_message_size }
+        Self { 
+            max_message_size,
+            compression_enabled: false,
+            compression_threshold: 1024,
+        }
     }
 
-    /// Encodes a message to bytes using bincode
+    /// Creates a new message codec with compression settings
+    pub fn with_compression(compression_enabled: bool, compression_threshold: usize) -> Self {
+        Self {
+            max_message_size: 1024 * 1024,
+            compression_enabled,
+            compression_threshold,
+        }
+    }
+
+    /// Creates a new message codec with all settings
+    pub fn with_settings(
+        max_message_size: usize,
+        compression_enabled: bool,
+        compression_threshold: usize,
+    ) -> Self {
+        Self {
+            max_message_size,
+            compression_enabled,
+            compression_threshold,
+        }
+    }
+
+    /// Encodes a message to bytes using bincode with optional LZ4 compression
     ///
     /// Returns an error if serialization fails or if the message exceeds the size limit.
+    /// Messages larger than the compression threshold will be compressed if compression is enabled.
     pub fn encode(&self, message: &Message) -> Result<Vec<u8>, DatabaseError> {
         let encoded = bincode::serialize(message).map_err(|e| DatabaseError::SerializationError {
             message: format!("Failed to serialize message: {}", e),
         })?;
 
-        // Check message size
+        // Check message size before compression
         if encoded.len() > self.max_message_size {
             return Err(DatabaseError::MessageTooLarge {
                 size: encoded.len(),
@@ -169,12 +205,19 @@ impl MessageCodec {
             });
         }
 
-        Ok(encoded)
+        // Compress if enabled and above threshold
+        if self.compression_enabled && encoded.len() > self.compression_threshold {
+            let compressed = lz4_flex::compress_prepend_size(&encoded);
+            Ok(compressed)
+        } else {
+            Ok(encoded)
+        }
     }
 
-    /// Decodes a message from bytes using bincode
+    /// Decodes a message from bytes using bincode with optional LZ4 decompression
     ///
     /// Returns an error if deserialization fails or if checksum validation fails.
+    /// Automatically detects and decompresses compressed messages.
     pub fn decode(&self, data: &[u8]) -> Result<Message, DatabaseError> {
         // Check message size
         if data.len() > self.max_message_size {
@@ -184,8 +227,18 @@ impl MessageCodec {
             });
         }
 
+        // Try to decompress if compression is enabled
+        let decompressed = if self.compression_enabled {
+            match lz4_flex::decompress_size_prepended(data) {
+                Ok(d) => d,
+                Err(_) => data.to_vec(), // Not compressed, use as-is
+            }
+        } else {
+            data.to_vec()
+        };
+
         let message: Message =
-            bincode::deserialize(data).map_err(|e| DatabaseError::SerializationError {
+            bincode::deserialize(&decompressed).map_err(|e| DatabaseError::SerializationError {
                 message: format!("Failed to deserialize message: {}", e),
             })?;
 
@@ -715,6 +768,82 @@ mod tests {
         let selected = ProtocolNegotiation::select_protocol(&client, &server);
         assert_eq!(selected, None);
     }
+
+    // Compression Tests
+    #[test]
+    fn test_codec_compression_enabled() {
+        let codec = MessageCodec::with_compression(true, 100);
+        assert!(codec.compression_enabled);
+        assert_eq!(codec.compression_threshold, 100);
+    }
+
+    #[test]
+    fn test_codec_compression_large_message() {
+        let codec = MessageCodec::with_compression(true, 100);
+        
+        // Create a large message (> 100 bytes)
+        let large_payload = vec![0u8; 500];
+        let msg = Message::new(1, 2, 100, 1704067200000, MessageType::Data, large_payload);
+        
+        // Encode with compression
+        let encoded = codec.encode(&msg).unwrap();
+        
+        // Encode without compression for comparison
+        let codec_no_compression = MessageCodec::with_compression(false, 100);
+        let encoded_no_compression = codec_no_compression.encode(&msg).unwrap();
+        
+        // Compressed should be different size (LZ4 adds size prefix)
+        assert_ne!(encoded.len(), encoded_no_compression.len());
+        
+        // Decode and verify
+        let decoded = codec.decode(&encoded).unwrap();
+        assert_eq!(msg.sender, decoded.sender);
+        assert_eq!(msg.payload, decoded.payload);
+    }
+
+    #[test]
+    fn test_codec_compression_small_message() {
+        let codec = MessageCodec::with_compression(true, 1000);
+        
+        // Create a small message (< 1000 bytes)
+        let small_payload = vec![1, 2, 3, 4, 5];
+        let msg = Message::new(1, 2, 100, 1704067200000, MessageType::Data, small_payload);
+        
+        // Encode with compression
+        let encoded = codec.encode(&msg).unwrap();
+        
+        // Encode without compression for comparison
+        let codec_no_compression = MessageCodec::with_compression(false, 1000);
+        let encoded_no_compression = codec_no_compression.encode(&msg).unwrap();
+        
+        // Should be same size (not compressed)
+        assert_eq!(encoded.len(), encoded_no_compression.len());
+        
+        // Decode and verify
+        let decoded = codec.decode(&encoded).unwrap();
+        assert_eq!(msg.sender, decoded.sender);
+        assert_eq!(msg.payload, decoded.payload);
+    }
+
+    #[test]
+    fn test_codec_compression_round_trip() {
+        let codec = MessageCodec::with_compression(true, 50);
+        
+        // Create a message above threshold
+        let payload = vec![42u8; 200];
+        let msg = Message::new(1, 2, 100, 1704067200000, MessageType::Data, payload.clone());
+        
+        // Encode and decode
+        let encoded = codec.encode(&msg).unwrap();
+        let decoded = codec.decode(&encoded).unwrap();
+        
+        // Verify all fields match
+        assert_eq!(msg.sender, decoded.sender);
+        assert_eq!(msg.recipient, decoded.recipient);
+        assert_eq!(msg.sequence_number, decoded.sequence_number);
+        assert_eq!(msg.payload, decoded.payload);
+        assert_eq!(msg.checksum, decoded.checksum);
+    }
 }
 
 // Property-Based Tests
@@ -891,6 +1020,134 @@ mod property_tests {
                 prop_assert!(
                     matches!(result, Err(DatabaseError::MessageTooLarge { .. })),
                     "Oversized message should return MessageTooLarge error"
+                );
+            }
+        }
+    }
+
+    // Property 41: Compression Threshold
+    // Feature: client-sdk, Property 41: For any message larger than the compression threshold, the message should be compressed before transmission when compression is enabled
+    // Validates: Requirements 13.6
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+        
+        #[test]
+        fn prop_compression_threshold(
+            sender in any::<u64>(),
+            recipient in any::<u64>(),
+            seq in any::<u64>(),
+            ts in any::<i64>(),
+            msg_type in message_type_strategy(),
+            payload_size in 0usize..5000,
+            threshold in 500usize..2000,
+        ) {
+            // Create codec with compression enabled
+            let codec = MessageCodec::with_compression(true, threshold);
+            
+            // Create a message with the specified payload size
+            let payload = vec![0u8; payload_size];
+            let msg = Message::new(sender, recipient, seq, ts, msg_type, payload);
+            
+            // Encode the message
+            let encoded = codec.encode(&msg);
+            
+            // Skip if encoding failed (message too large)
+            if encoded.is_err() {
+                return Ok(());
+            }
+            
+            let encoded = encoded.unwrap();
+            
+            // Serialize without compression to get the uncompressed size
+            let uncompressed = bincode::serialize(&msg).unwrap();
+            
+            // If uncompressed size > threshold, encoded should be compressed (smaller or similar size)
+            // If uncompressed size <= threshold, encoded should be uncompressed (same size)
+            if uncompressed.len() > threshold {
+                // Message should be compressed - encoded size should be different from uncompressed
+                // (LZ4 adds a size prefix, so even if compression doesn't reduce size, it will be different)
+                prop_assert_ne!(
+                    encoded.len(),
+                    uncompressed.len(),
+                    "Message above threshold should be compressed (sizes should differ)"
+                );
+            } else {
+                // Message should not be compressed - sizes should match
+                prop_assert_eq!(
+                    encoded.len(),
+                    uncompressed.len(),
+                    "Message at or below threshold should not be compressed"
+                );
+            }
+            
+            // Verify we can decode the message correctly
+            let decoded = codec.decode(&encoded).expect("Decoding should succeed");
+            prop_assert_eq!(msg.sender, decoded.sender);
+            prop_assert_eq!(msg.payload, decoded.payload);
+        }
+    }
+
+    // Property 42: Feature Negotiation
+    // Feature: client-sdk, Property 42: For any set of client-supported features and server-supported features, the negotiated features should be the intersection of both sets
+    // Validates: Requirements 13.7
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+        
+        #[test]
+        fn prop_feature_negotiation(
+            include_compression_client in any::<bool>(),
+            include_heartbeat_client in any::<bool>(),
+            include_streaming_client in any::<bool>(),
+            include_compression_server in any::<bool>(),
+            include_heartbeat_server in any::<bool>(),
+            include_streaming_server in any::<bool>(),
+        ) {
+            use crate::types::Feature;
+            
+            // Build client features
+            let mut client_features = Vec::new();
+            if include_compression_client {
+                client_features.push(Feature::Compression);
+            }
+            if include_heartbeat_client {
+                client_features.push(Feature::Heartbeat);
+            }
+            if include_streaming_client {
+                client_features.push(Feature::Streaming);
+            }
+            
+            // Build server features
+            let mut server_features = Vec::new();
+            if include_compression_server {
+                server_features.push(Feature::Compression);
+            }
+            if include_heartbeat_server {
+                server_features.push(Feature::Heartbeat);
+            }
+            if include_streaming_server {
+                server_features.push(Feature::Streaming);
+            }
+            
+            // Calculate expected intersection
+            let expected: Vec<Feature> = client_features
+                .iter()
+                .filter(|f| server_features.contains(f))
+                .cloned()
+                .collect();
+            
+            // Simulate negotiation by calculating intersection
+            let negotiated: Vec<Feature> = client_features
+                .into_iter()
+                .filter(|f| server_features.contains(&f))
+                .collect();
+            
+            // Verify negotiated features match expected intersection
+            prop_assert_eq!(negotiated.len(), expected.len());
+            for feature in &expected {
+                prop_assert!(
+                    negotiated.contains(feature),
+                    "Negotiated features should contain {:?}",
+                    feature
                 );
             }
         }

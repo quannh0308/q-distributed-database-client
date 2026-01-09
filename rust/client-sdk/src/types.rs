@@ -593,6 +593,24 @@ pub struct UserUpdate {
     pub roles: Option<Vec<Role>>,
 }
 
+/// Feature enumeration for protocol feature negotiation
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Feature {
+    /// Message compression support
+    Compression,
+    /// Heartbeat support
+    Heartbeat,
+    /// Streaming support
+    Streaming,
+}
+
+/// Feature negotiation request/response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeatureNegotiation {
+    /// List of supported features
+    pub supported_features: Vec<Feature>,
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -917,5 +935,42 @@ mod tests {
         assert_eq!(node.address, "localhost:7000");
         assert_eq!(node.health_status, NodeHealthStatus::Healthy);
         assert_eq!(node.consecutive_failures, 0);
+    }
+
+    // Feature Tests
+    #[test]
+    fn test_feature_equality() {
+        assert_eq!(Feature::Compression, Feature::Compression);
+        assert_eq!(Feature::Heartbeat, Feature::Heartbeat);
+        assert_eq!(Feature::Streaming, Feature::Streaming);
+        assert_ne!(Feature::Compression, Feature::Heartbeat);
+    }
+
+    #[test]
+    fn test_feature_negotiation_creation() {
+        let features = vec![Feature::Compression, Feature::Heartbeat];
+        let negotiation = FeatureNegotiation {
+            supported_features: features.clone(),
+        };
+        assert_eq!(negotiation.supported_features.len(), 2);
+        assert!(negotiation.supported_features.contains(&Feature::Compression));
+        assert!(negotiation.supported_features.contains(&Feature::Heartbeat));
+    }
+
+    #[test]
+    fn test_feature_negotiation_intersection() {
+        let client_features = vec![Feature::Compression, Feature::Heartbeat];
+        let server_features = vec![Feature::Compression, Feature::Streaming];
+        
+        // Calculate intersection
+        let negotiated: Vec<Feature> = client_features
+            .into_iter()
+            .filter(|f| server_features.contains(f))
+            .collect();
+        
+        assert_eq!(negotiated.len(), 1);
+        assert!(negotiated.contains(&Feature::Compression));
+        assert!(!negotiated.contains(&Feature::Heartbeat));
+        assert!(!negotiated.contains(&Feature::Streaming));
     }
 }

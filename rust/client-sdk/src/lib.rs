@@ -53,6 +53,7 @@ pub use query_builder::{QueryBuilder, QueryType, OrderDirection};
 pub use result::{ColumnMetadata, DataType, QueryResult, Row};
 pub use transaction::{IsolationLevel, Transaction, TransactionRequest, TransactionResponse};
 pub use types::*;
+pub use types::{Feature, FeatureNegotiation};
 
 /// Result type alias using DatabaseError
 pub type Result<T> = std::result::Result<T, DatabaseError>;
