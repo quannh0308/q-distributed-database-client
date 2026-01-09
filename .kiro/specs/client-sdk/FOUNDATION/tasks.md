@@ -256,7 +256,7 @@ This implementation plan breaks down the client SDK development into discrete, m
     - Implement prepare() method
     - _Requirements: 4.1_
 
-- [ ] 8. Checkpoint - Ensure all tests pass
+- [x] 8. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 9. Implement transaction support

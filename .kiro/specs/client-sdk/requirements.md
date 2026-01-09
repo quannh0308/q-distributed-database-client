@@ -30,28 +30,116 @@ The Q-Distributed-Database Client SDK provides a multi-language client library f
 
 ## Current Task Requirements
 
-### Task 8: Checkpoint - Ensure All Tests Pass
+### Task 9: Implement Transaction Support
 
-This checkpoint task ensures that all implemented functionality is working correctly before proceeding to the next major feature (transaction support).
+This task implements ACID transaction capabilities, allowing multiple database operations to be executed atomically with commit and rollback support.
 
-#### Checkpoint Objectives
+#### Transaction Overview
 
-1. **Verify All Tests Pass**
-   - Run the complete test suite
-   - Ensure all unit tests pass
-   - Ensure all property-based tests pass
-   - Verify no compilation errors or warnings
+Transactions provide atomicity, consistency, isolation, and durability (ACID) guarantees for database operations. The SDK will support:
+- Beginning transactions with configurable isolation levels
+- Executing multiple operations within a transaction context
+- Committing transactions to persist all changes
+- Rolling back transactions to discard all changes
+- Automatic rollback on errors or when transactions are dropped
 
-2. **Review Implementation Quality**
-   - Check code coverage
-   - Review error handling
-   - Verify documentation completeness
-   - Ensure code follows best practices
+#### Key Requirements
 
-3. **Validate Integration**
-   - Verify all components work together
-   - Test end-to-end workflows
-   - Confirm API consistency
+**From Requirement 5: Transaction Management**
+
+1. **Transaction Context Creation (5.1)**
+   - WHEN starting a transaction, THE Client_SDK SHALL create a Transaction_Context with isolation level configuration
+   - Transaction context must have a unique transaction ID
+   - Transaction must maintain its own connection from the pool
+
+2. **Operation Association (5.2)**
+   - WHEN executing operations within a transaction, THE Client_SDK SHALL associate all operations with the transaction context
+   - All operations must include the transaction ID in requests
+   - Operations must use the transaction's dedicated connection
+
+3. **Atomic Commit (5.3)**
+   - WHEN committing a transaction, THE Client_SDK SHALL persist all changes atomically
+   - Either all operations succeed or all fail (no partial commits)
+   - Commit must respect the configured consistency model
+
+4. **Rollback (5.4)**
+   - WHEN rolling back a transaction, THE Client_SDK SHALL discard all changes made within the transaction
+   - Rolled-back changes must not be visible in subsequent queries
+   - Rollback must release the transaction's resources
+
+5. **Automatic Rollback on Error (5.5)**
+   - IF a transaction fails, THEN THE Client_SDK SHALL automatically rollback and return error details
+   - Errors during transaction operations must trigger automatic rollback
+   - Transaction must be marked as failed after automatic rollback
+
+6. **Nested Transaction Prevention (5.6)**
+   - WHERE nested transactions are attempted, THE Client_SDK SHALL return an error
+   - Only one active transaction per connection is allowed
+
+#### Implementation Components
+
+**1. Transaction Struct**
+- Store connection, auth token, transaction ID
+- Track commit status to prevent double-commit
+- Implement execute() and query() methods for operations within transaction
+- Implement Drop trait for automatic rollback
+
+**2. Transaction Lifecycle**
+```
+begin_transaction() → Transaction created
+    ↓
+execute() / query() → Operations within transaction
+    ↓
+commit() → Changes persisted (success path)
+    OR
+rollback() → Changes discarded (explicit rollback)
+    OR
+Drop → Automatic rollback (if not committed)
+```
+
+**3. DataClient Integration**
+- Add begin_transaction() method to DataClient
+- Acquire dedicated connection from pool for transaction
+- Send BEGIN TRANSACTION message to server
+- Return Transaction instance to caller
+
+#### Technical Specifications
+
+**Transaction Message Types:**
+- BEGIN TRANSACTION: Start a new transaction
+- COMMIT: Persist all transaction changes
+- ROLLBACK: Discard all transaction changes
+- EXECUTE (with transaction_id): Execute operation within transaction
+- QUERY (with transaction_id): Query within transaction
+
+**Transaction ID:**
+- Unique identifier for each transaction
+- Generated client-side (UUID or sequential)
+- Included in all transaction-related messages
+
+**Isolation Levels:**
+- Read Uncommitted
+- Read Committed (default)
+- Repeatable Read
+- Serializable
+
+**Error Handling:**
+- Transaction errors trigger automatic rollback
+- Rollback errors are logged but don't prevent error propagation
+- Double-commit attempts return error
+- Operations on committed/rolled-back transactions return error
+
+#### Success Criteria
+
+- ✅ Transaction struct implemented with all required methods
+- ✅ begin_transaction() creates valid transaction context
+- ✅ Operations within transaction include transaction ID
+- ✅ commit() persists all changes atomically
+- ✅ rollback() discards all changes
+- ✅ Automatic rollback on error works correctly
+- ✅ Drop trait implements automatic rollback
+- ✅ All property tests pass (Properties 22-26)
+- ✅ Integration with DataClient complete
 
 #### What Has Been Implemented So Far
 
@@ -61,68 +149,21 @@ This checkpoint task ensures that all implemented functionality is working corre
 - ✅ Authentication (Task 5)
 - ✅ Data client for CRUD operations (Task 6)
 - ✅ Query builder (Task 7)
+- ✅ Checkpoint 8 - All tests passing
 
-**Implemented Features:**
-- Message serialization with bincode and CRC32 checksums
-- Connection pooling with health monitoring
-- Automatic retry with exponential backoff
-- Token-based authentication with automatic re-authentication
-- CRUD operations (INSERT, SELECT, UPDATE, DELETE)
-- Query builder with fluent API and SQL injection prevention
-- Prepared statement caching
-- Batch operations
-- Streaming results
-
-#### Checkpoint Activities
-
-1. **Run All Tests**
-   ```bash
-   cd rust/client-sdk
-   cargo test --all-features
-   ```
-
-2. **Run Property Tests**
-   ```bash
-   cargo test --all-features -- --include-ignored
-   ```
-
-3. **Check for Warnings**
-   ```bash
-   cargo clippy --all-features
-   ```
-
-4. **Verify Code Compiles**
-   ```bash
-   cargo build --all-features
-   ```
-
-5. **Review Test Coverage**
-   - Ensure all critical paths are tested
-   - Verify property tests are comprehensive
-   - Check edge cases are covered
-
-#### Success Criteria
-
-- ✅ All unit tests pass
-- ✅ All property-based tests pass
-- ✅ No compilation errors
-- ✅ No critical clippy warnings
-- ✅ Code builds successfully
-- ✅ All implemented features working correctly
+**Ready for Transaction Support:**
+- Connection pooling can provide dedicated connections for transactions
+- Message protocol supports Transaction message type
+- Authentication provides valid tokens for transaction requests
+- DataClient can be extended with transaction methods
+- Error handling supports automatic retry and rollback logic
 
 #### What Comes Next
 
-After this checkpoint, the next major task is:
-- **Task 9: Implement transaction support** - Adding ACID transaction capabilities with commit, rollback, and automatic rollback on error
-
-#### Questions to Address
-
-If any tests fail or issues arise during this checkpoint:
-1. Are there any failing tests that need investigation?
-2. Are there any compilation errors or warnings that need fixing?
-3. Are there any performance concerns or bottlenecks?
-4. Is the documentation complete and accurate?
-5. Are there any missing edge cases or error scenarios?
+After Task 9, the next tasks are:
+- **Task 10: Implement admin client** - Cluster and user management operations
+- **Task 11: Implement result handling** - Enhanced result processing and type conversion
+- **Task 12: Implement error handling** - Comprehensive error types and retry policies
 
 ---
 

@@ -41,192 +41,392 @@ Q-Distributed-Database Cluster
 
 ## Current Task Design
 
-### Task 8: Checkpoint - Ensure All Tests Pass
+### Task 9: Implement Transaction Support
 
-This checkpoint validates that all implemented functionality is working correctly before proceeding to transaction support.
+This task implements ACID transaction capabilities for the Client SDK, allowing multiple database operations to be executed atomically.
 
-#### Checkpoint Purpose
+#### Design Overview
 
-Checkpoints serve as quality gates in the development process. They ensure:
-1. All implemented features are working correctly
-2. No regressions have been introduced
-3. Code quality standards are maintained
-4. Documentation is up to date
-5. The codebase is ready for the next major feature
+Transactions provide atomicity guarantees - either all operations succeed or all fail. The SDK will implement:
 
-#### What to Verify
+1. **Transaction Struct**: Manages transaction lifecycle and state
+2. **Transaction Context**: Associates operations with a transaction ID
+3. **Automatic Rollback**: Ensures cleanup on errors or drop
+4. **DataClient Integration**: Provides begin_transaction() API
 
-**1. Test Suite Execution**
+#### Transaction Architecture
 
-Run all tests to ensure everything passes:
-
-```bash
-# Run all tests
-cd rust/client-sdk
-cargo test --all-features
-
-# Run property-based tests
-cargo test --all-features -- --include-ignored
-
-# Check for warnings
-cargo clippy --all-features
-
-# Verify build
-cargo build --all-features
+```
+DataClient
+    ↓
+begin_transaction()
+    ↓
+Acquire Connection from Pool
+    ↓
+Send BEGIN TRANSACTION message
+    ↓
+Create Transaction instance
+    ↓
+Transaction {
+    connection: PooledConnection,
+    auth_token: AuthToken,
+    transaction_id: TransactionId,
+    is_committed: bool
+}
+    ↓
+execute() / query() operations
+    ↓
+commit() OR rollback() OR Drop
 ```
 
-**2. Component Integration**
+#### Component Design
 
-Verify that all components work together correctly:
+**1. Transaction Struct**
 
-- **Message Protocol ↔ Connection**: Messages serialize/deserialize correctly
-- **Connection ↔ Authentication**: Auth tokens are included in requests
-- **Authentication ↔ DataClient**: Automatic re-authentication works
-- **DataClient ↔ QueryBuilder**: Query builder integrates with execute methods
-- **ConnectionManager ↔ ConnectionPool**: Pool management and health checking work
+```rust
+pub struct Transaction {
+    connection: PooledConnection,
+    auth_token: AuthToken,
+    transaction_id: TransactionId,
+    is_committed: bool,
+}
 
-**3. Property Test Coverage**
+impl Transaction {
+    pub async fn execute(&mut self, sql: &str) -> Result<ExecuteResult>;
+    pub async fn execute_with_params(&mut self, sql: &str, params: &[Value]) -> Result<ExecuteResult>;
+    pub async fn query(&mut self, sql: &str) -> Result<QueryResult>;
+    pub async fn query_with_params(&mut self, sql: &str, params: &[Value]) -> Result<QueryResult>;
+    pub async fn commit(mut self) -> Result<()>;
+    pub async fn rollback(mut self) -> Result<()>;
+}
 
-Ensure all implemented properties are tested:
+impl Drop for Transaction {
+    fn drop(&mut self) {
+        if !self.is_committed {
+            // Attempt rollback on drop
+            // Log warning if rollback fails
+        }
+    }
+}
+```
 
-**Completed Properties (Tasks 2-7):**
-- ✅ Property 1: Connection Establishment
-- ✅ Property 2: Exponential Backoff on Retry
-- ✅ Property 3: Load Distribution
-- ✅ Property 4: Unhealthy Node Avoidance
-- ✅ Property 5: Connection Reuse
-- ✅ Property 6: Graceful Shutdown
-- ✅ Property 7: Protocol Selection Priority
-- ✅ Property 8: Auth Token Structure
-- ✅ Property 9: Token Inclusion in Requests
-- ✅ Property 10: Automatic Re-authentication
-- ✅ Property 11: Token Invalidation on Logout
-- ✅ Property 12: Token TTL Respect
-- ✅ Property 13: Insert-Then-Retrieve Consistency
-- ✅ Property 14: Update Visibility
-- ✅ Property 15: Delete Removes Record
-- ✅ Property 16: Operation Result Structure
-- ✅ Property 17: Batch Operation Atomicity
-- ✅ Property 18: Query Builder Produces Valid SQL
-- ✅ Property 19: Condition Logic Correctness
-- ✅ Property 20: SQL Injection Prevention
-- ✅ Property 27: Retry with Exponential Backoff
-- ✅ Property 32: Result Deserialization
-- ✅ Property 33: Result Iteration
-- ✅ Property 34: Column Access Methods
-- ✅ Property 35: Streaming Memory Efficiency
-- ✅ Property 37: Message Serialization Round-Trip
-- ✅ Property 38: Checksum Validation Detects Corruption
-- ✅ Property 39: Length-Prefixed Framing
-- ✅ Property 40: Message Size Limit Enforcement
+**Responsibilities:**
+- Execute operations within transaction context
+- Include transaction_id in all operation messages
+- Track commit status to prevent double-commit
+- Implement automatic rollback on drop
 
-**4. Code Quality Checks**
+**2. DataClient Extension**
 
-- No compilation errors
-- No critical clippy warnings
-- Code follows Rust best practices
-- Documentation is complete
-- Error handling is comprehensive
+Add transaction support to DataClient:
 
-**5. Feature Completeness**
+```rust
+impl DataClient {
+    pub async fn begin_transaction(&self) -> Result<Transaction> {
+        // 1. Acquire connection from pool
+        let connection = self.connection_manager.get_connection().await?;
+        
+        // 2. Get valid auth token
+        let auth_token = self.auth_manager.get_valid_token(&mut connection).await?;
+        
+        // 3. Generate unique transaction ID
+        let transaction_id = TransactionId::new();
+        
+        // 4. Send BEGIN TRANSACTION message
+        let request = Request::Transaction(TransactionRequest::Begin {
+            transaction_id,
+            isolation_level: IsolationLevel::ReadCommitted,
+        });
+        
+        let response = connection.send_request(request).await?;
+        
+        // 5. Verify success
+        match response {
+            Response::Transaction(TransactionResponse::BeginSuccess) => {
+                Ok(Transaction {
+                    connection,
+                    auth_token,
+                    transaction_id,
+                    is_committed: false,
+                })
+            }
+            Response::Error(e) => Err(e.into()),
+            _ => Err(DatabaseError::ProtocolError),
+        }
+    }
+}
+```
 
-Verify all features from Tasks 2-7 are working:
+**3. Transaction Operations**
 
-**Message Protocol (Task 2):**
-- ✅ Bincode serialization with CRC32 checksums
-- ✅ Length-prefixed framing
-- ✅ Message size validation
-- ✅ Compression support
+Operations within a transaction include the transaction ID:
 
-**Connection Management (Task 3):**
-- ✅ TCP connection establishment
-- ✅ Connection pooling (min/max connections)
-- ✅ Health monitoring and failover
-- ✅ Retry with exponential backoff
-- ✅ Graceful shutdown
+```rust
+impl Transaction {
+    pub async fn execute(&mut self, sql: &str) -> Result<ExecuteResult> {
+        let request = Request::Execute(ExecuteRequest {
+            sql: sql.to_string(),
+            params: vec![],
+            transaction_id: Some(self.transaction_id),
+        });
+        
+        let response = self.connection.send_request(request).await?;
+        
+        match response {
+            Response::Execute(result) => Ok(result),
+            Response::Error(e) => {
+                // Automatic rollback on error
+                self.rollback().await?;
+                Err(e.into())
+            }
+            _ => Err(DatabaseError::ProtocolError),
+        }
+    }
+}
+```
 
-**Authentication (Task 5):**
-- ✅ Token-based authentication
-- ✅ Automatic re-authentication on expiration
-- ✅ Token TTL management
-- ✅ Logout and token invalidation
-- ✅ Protocol negotiation
+**4. Commit Implementation**
 
-**Data Client (Task 6):**
-- ✅ CRUD operations (INSERT, SELECT, UPDATE, DELETE)
-- ✅ Parameterized queries
-- ✅ Batch operations
-- ✅ Streaming results
-- ✅ Result deserialization
+```rust
+impl Transaction {
+    pub async fn commit(mut self) -> Result<()> {
+        if self.is_committed {
+            return Err(DatabaseError::TransactionAlreadyCommitted);
+        }
+        
+        let request = Request::Transaction(TransactionRequest::Commit {
+            transaction_id: self.transaction_id,
+        });
+        
+        let response = self.connection.send_request(request).await?;
+        
+        match response {
+            Response::Transaction(TransactionResponse::CommitSuccess) => {
+                self.is_committed = true;
+                Ok(())
+            }
+            Response::Error(e) => {
+                // Rollback on commit failure
+                self.rollback().await?;
+                Err(e.into())
+            }
+            _ => Err(DatabaseError::ProtocolError),
+        }
+    }
+}
+```
 
-**Query Builder (Task 7):**
-- ✅ Fluent API for query construction
-- ✅ SELECT, INSERT, UPDATE, DELETE support
-- ✅ WHERE clauses with AND/OR logic
-- ✅ SQL injection prevention
-- ✅ Prepared statement caching
+**5. Rollback Implementation**
 
-#### Common Issues to Check
+```rust
+impl Transaction {
+    pub async fn rollback(mut self) -> Result<()> {
+        if self.is_committed {
+            return Err(DatabaseError::TransactionAlreadyCommitted);
+        }
+        
+        let request = Request::Transaction(TransactionRequest::Rollback {
+            transaction_id: self.transaction_id,
+        });
+        
+        let response = self.connection.send_request(request).await?;
+        
+        match response {
+            Response::Transaction(TransactionResponse::RollbackSuccess) => {
+                self.is_committed = true; // Mark as "done" to prevent Drop rollback
+                Ok(())
+            }
+            Response::Error(e) => Err(e.into()),
+            _ => Err(DatabaseError::ProtocolError),
+        }
+    }
+}
+```
 
-**Test Failures:**
-- Property tests may fail due to edge cases
-- Integration tests may fail due to timing issues
-- Unit tests may fail due to incorrect assumptions
+**6. Automatic Rollback on Drop**
 
-**Compilation Issues:**
-- Missing imports or dependencies
-- Type mismatches
-- Lifetime errors
+```rust
+impl Drop for Transaction {
+    fn drop(&mut self) {
+        if !self.is_committed {
+            // Transaction was neither committed nor explicitly rolled back
+            // Attempt automatic rollback
+            
+            let transaction_id = self.transaction_id;
+            let connection = &mut self.connection;
+            
+            // Spawn blocking task to rollback
+            // (Drop cannot be async, so we do best-effort sync rollback)
+            if let Err(e) = block_on(async {
+                let request = Request::Transaction(TransactionRequest::Rollback {
+                    transaction_id,
+                });
+                connection.send_request(request).await
+            }) {
+                eprintln!("Warning: Failed to rollback transaction on drop: {:?}", e);
+            }
+        }
+    }
+}
+```
 
-**Warnings:**
-- Unused variables or imports
-- Dead code
-- Deprecated API usage
+#### Message Protocol Extensions
 
-**Performance Issues:**
-- Connection pool exhaustion
-- Memory leaks in streaming
-- Slow property test execution
+**Transaction Request Types:**
 
-#### Troubleshooting Guide
+```rust
+pub enum TransactionRequest {
+    Begin {
+        transaction_id: TransactionId,
+        isolation_level: IsolationLevel,
+    },
+    Commit {
+        transaction_id: TransactionId,
+    },
+    Rollback {
+        transaction_id: TransactionId,
+    },
+}
 
-**If tests fail:**
-1. Read the error message carefully
-2. Identify which component is failing
-3. Check if it's a test issue or implementation issue
-4. Review the relevant property or requirement
-5. Fix the issue and re-run tests
+pub enum TransactionResponse {
+    BeginSuccess,
+    CommitSuccess,
+    RollbackSuccess,
+}
 
-**If compilation fails:**
-1. Check for missing dependencies in Cargo.toml
-2. Verify all imports are correct
-3. Check for type mismatches
-4. Review lifetime annotations
+pub enum IsolationLevel {
+    ReadUncommitted,
+    ReadCommitted,
+    RepeatableRead,
+    Serializable,
+}
+```
 
-**If warnings appear:**
-1. Address critical warnings first
-2. Fix unused code warnings
-3. Update deprecated API usage
-4. Ensure all public items are documented
+**Execute/Query Request Extensions:**
 
-#### Next Steps After Checkpoint
+```rust
+pub struct ExecuteRequest {
+    pub sql: String,
+    pub params: Vec<Value>,
+    pub transaction_id: Option<TransactionId>, // NEW: Optional transaction context
+}
 
-Once all tests pass and the checkpoint is complete:
-1. Review any open questions or concerns
-2. Document any known limitations
-3. Prepare for Task 9: Transaction Support
-4. Update project status and progress tracking
+pub struct QueryRequest {
+    pub sql: String,
+    pub params: Vec<Value>,
+    pub transaction_id: Option<TransactionId>, // NEW: Optional transaction context
+}
+```
+
+#### Error Handling
+
+**Transaction-Specific Errors:**
+
+```rust
+pub enum DatabaseError {
+    // ... existing errors ...
+    
+    // Transaction Errors
+    TransactionAborted { transaction_id: TransactionId, reason: String },
+    TransactionAlreadyCommitted,
+    TransactionAlreadyRolledBack,
+    DeadlockDetected { transaction_id: TransactionId },
+    IsolationViolation { details: String },
+}
+```
+
+**Error Handling Strategy:**
+
+1. **Operation Errors**: Automatically rollback transaction before returning error
+2. **Commit Errors**: Attempt rollback, then return commit error
+3. **Rollback Errors**: Log warning, return error (transaction is in unknown state)
+4. **Drop Errors**: Log warning, don't panic (best-effort cleanup)
+
+#### Correctness Properties
+
+**Property 22: Transaction Context Creation**
+*For any* begin_transaction() call, a valid Transaction_Context should be created with a unique transaction ID.
+**Validates: Requirements 5.1**
+
+**Property 23: Transaction Operation Association**
+*For any* operation executed within a transaction, it should be associated with that transaction's ID.
+**Validates: Requirements 5.2**
+
+**Property 24: Transaction Atomicity**
+*For any* committed transaction, either all operations are persisted or none are (no partial commits).
+**Validates: Requirements 5.3**
+
+**Property 25: Rollback Discards Changes**
+*For any* rolled-back transaction, none of the operations should be visible in subsequent queries.
+**Validates: Requirements 5.4**
+
+**Property 26: Automatic Rollback on Failure**
+*For any* transaction that encounters an error, the transaction should automatically rollback before returning the error.
+**Validates: Requirements 5.5**
+
+#### Testing Strategy
+
+**Unit Tests:**
+- Test transaction creation
+- Test commit success
+- Test explicit rollback
+- Test double-commit prevention
+- Test operations on committed transaction
+
+**Property Tests:**
+- Property 22: Transaction context creation
+- Property 23: Operation association with transaction ID
+- Property 24: Atomicity (all-or-nothing)
+- Property 25: Rollback discards all changes
+- Property 26: Automatic rollback on error
+
+**Integration Tests:**
+- Test multi-operation transaction
+- Test transaction with query and execute
+- Test transaction rollback on error
+- Test automatic rollback on drop
+- Test concurrent transactions
+
+#### Implementation Notes
+
+**Connection Management:**
+- Each transaction gets a dedicated connection from the pool
+- Connection is held for the transaction's lifetime
+- Connection is returned to pool after commit/rollback
+
+**Transaction ID Generation:**
+- Use UUID v4 for globally unique IDs
+- Alternative: Sequential IDs with client prefix
+
+**Isolation Levels:**
+- Default to ReadCommitted for balance of consistency and performance
+- Allow configuration via ConnectionConfig
+- Server enforces isolation level
+
+**Nested Transactions:**
+- Not supported in this implementation
+- Attempting to begin transaction within transaction returns error
+- Future enhancement: Savepoints for nested transaction simulation
 
 #### Success Criteria
 
-- ✅ All unit tests pass
-- ✅ All property-based tests pass (minimum 100 iterations each)
-- ✅ No compilation errors
-- ✅ No critical clippy warnings
-- ✅ Code builds successfully with `--all-features`
-- ✅ All implemented features working correctly
-- ✅ Integration between components verified
-- ✅ Documentation is complete and accurate
+- ✅ Transaction struct implemented with all methods
+- ✅ begin_transaction() creates valid transaction context
+- ✅ Operations include transaction_id in requests
+- ✅ commit() persists all changes atomically
+- ✅ rollback() discards all changes
+- ✅ Automatic rollback on error works
+- ✅ Drop trait implements automatic rollback
+- ✅ All property tests pass (Properties 22-26)
+- ✅ Integration with DataClient complete
+- ✅ Error handling comprehensive
+
+#### What Comes Next
+
+After Task 9, the next tasks are:
+- **Task 10: Implement admin client** - Cluster and user management
+- **Task 11: Implement result handling** - Enhanced result processing
+- **Task 12: Implement error handling** - Comprehensive error types
 
 ---
 
