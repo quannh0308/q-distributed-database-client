@@ -32,65 +32,85 @@ The Q-Distributed-Database Client SDK provides a multi-language client library f
 
 ## Current Task Requirements
 
-### Task 14: Checkpoint - Ensure All Tests Pass
+### Task 15: Implement Main Client Interface
 
-This is a checkpoint task to verify that all implemented functionality is working correctly before proceeding to the final integration phase.
+This task wires all previously implemented components together into a unified Client interface that serves as the main entry point for applications.
 
-#### Checkpoint Overview
+#### Task Overview
 
-The checkpoint ensures:
-- All unit tests pass
-- All property-based tests pass
-- No compilation errors or warnings
-- Code quality is maintained
-- All implemented features work as expected
+The Client struct is the primary interface that applications use to interact with the q-distributed-database. It:
+- Initializes and manages all sub-components (ConnectionManager, AuthenticationManager, DataClient, AdminClient)
+- Provides a clean, unified API for all database operations
+- Handles graceful connection lifecycle (connect/disconnect)
+- Exposes health checking capabilities
 
-This checkpoint validates the work completed in Tasks 1-13, which includes:
-- Core types and error handling
-- Message protocol layer with compression
-- Connection management with pooling and failover
-- Authentication with token management
-- Data client for CRUD operations
-- Query builder with SQL injection prevention
-- Transaction support with automatic rollback
-- Admin client for cluster and user management
-- Result handling with type conversion
-- Comprehensive error handling with retry logic
-- Message compression with LZ4
-- Feature negotiation protocol
+#### What Has Been Implemented (Tasks 1-14)
+
+All core components are complete and tested:
+- ✅ **ConnectionManager**: Connection pooling, health checking, failover (Task 3)
+- ✅ **AuthenticationManager**: Token management, auto re-authentication (Task 5)
+- ✅ **DataClient**: CRUD operations, query execution, transactions (Tasks 6-7, 9)
+- ✅ **AdminClient**: Cluster and user management (Task 10)
+- ✅ **Message Protocol**: Serialization, compression, checksums (Tasks 2, 13)
+- ✅ **Error Handling**: Comprehensive error types, retry logic (Task 12)
+- ✅ **Result Handling**: Type conversion, streaming (Task 11)
+
+#### Requirements for Task 15
+
+**Requirement 1.1: Connection Establishment**
+- WHEN initializing the client, THE Client_SDK SHALL establish TCP connections to one or more q-distributed-database nodes on port 7000 (default)
+
+**Requirement 1.6: Graceful Shutdown**
+- WHEN closing the client, THE Client_SDK SHALL gracefully close all active connections
+
+**Requirement 6.2: Node Health Checking**
+- WHEN checking node health, THE Admin_Client SHALL return health status for each node including per-core task queue metrics
+
+#### Client Interface Structure
+
+The Client struct should:
+
+1. **Store all sub-components**:
+   - `ConnectionManager` - manages connection pool and node health
+   - `AuthenticationManager` - handles authentication and token management
+   - `DataClient` - provides CRUD operations and query execution
+   - `AdminClient` - provides cluster and user management
+
+2. **Provide initialization**:
+   - `connect(config)` - Initialize all components and establish connections
+   - Validate configuration
+   - Authenticate with credentials
+   - Verify cluster connectivity
+
+3. **Provide access methods**:
+   - `data()` - Returns reference to DataClient for CRUD operations
+   - `admin()` - Returns reference to AdminClient for admin operations
+
+4. **Provide lifecycle management**:
+   - `disconnect()` - Gracefully shutdown all connections
+   - `health_check()` - Query cluster health from all nodes
+
+#### Integration Points
+
+The Client must properly integrate:
+- **ConnectionManager** for connection pooling and failover
+- **AuthenticationManager** for authentication before any operations
+- **DataClient** for data operations (already uses ConnectionManager and AuthenticationManager)
+- **AdminClient** for admin operations (already uses ConnectionManager and AuthenticationManager)
 
 #### Success Criteria
 
-- ✅ All unit tests pass
-- ✅ All property-based tests pass (minimum 100 iterations each)
-- ✅ No compilation errors
-- ✅ No clippy warnings (Rust linter)
-- ✅ Code compiles in release mode
-- ✅ All implemented features functional
-
-#### What Has Been Implemented So Far
-
-**Completed Components (Tasks 1-13):**
-- ✅ Core types and error handling (Task 1)
-- ✅ Message protocol layer (Task 2)
-- ✅ Connection management (Task 3)
-- ✅ Authentication (Task 5)
-- ✅ Data client for CRUD operations (Task 6)
-- ✅ Query builder (Task 7)
-- ✅ Transaction support (Task 9)
-- ✅ Admin client (Task 10)
-- ✅ Result handling (Task 11)
-- ✅ Error handling (Task 12)
-- ✅ Compression support (Task 13)
-
-**All checkpoints passed:**
-- ✅ Checkpoint after Task 4
-- ✅ Checkpoint after Task 8
+- ✅ Client can be initialized with valid configuration
+- ✅ Client establishes connections to database nodes
+- ✅ Client authenticates successfully
+- ✅ Client provides access to data() and admin() operations
+- ✅ Client can check cluster health
+- ✅ Client can disconnect gracefully
+- ✅ All resources are properly released on disconnect
 
 #### What Comes Next
 
-After Task 14, the next tasks are:
-- **Task 15: Implement main Client interface** - Wire all components together into the main Client struct
+After Task 15, the remaining tasks are:
 - **Task 16: Add monitoring and observability** - Implement metrics, logging, and tracing
 - **Task 17: Create documentation and examples** - Write API docs and example applications
 - **Task 18: Final checkpoint** - Final validation before release

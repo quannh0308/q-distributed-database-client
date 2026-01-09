@@ -1,95 +1,109 @@
 # Automated Task Execution Cycle
 
-**Current Task**: 14 - Checkpoint: Ensure all tests pass
+**Current Task**: 15 - Implement Main Client Interface
 
 This is an automated 2-task cycle designed to minimize token consumption by loading only the current task context instead of the entire massive project specification.
 
 ## Tasks
 
-- [x] 1. Execute Current Task (14): Checkpoint - Ensure all tests pass
-  - **Task Objective**: Verify that all implemented functionality is working correctly before proceeding to the final integration phase
+- [ ] 1. Execute Current Task (15): Implement Main Client Interface
+  - **Task Objective**: Wire all previously implemented components together into a unified Client interface that serves as the main entry point for applications
   
   - **Implementation Steps**:
     
-    **Step 1: Compile Check**
+    **Step 1: Implement Client Struct**
     
-    1. **Build in release mode**
-       - Run `cargo build --release` in `rust/client-sdk/`
-       - Verify no compilation errors
-       - Verify no warnings
+    1. **Create Client struct in `rust/client-sdk/src/client.rs`**
+       - Add fields for config, connection_manager, auth_manager, data_client, admin_client
+       - Use `Arc` for shared components (ConnectionManager, AuthenticationManager)
+       - _Requirements: 1.1, 1.6_
     
-    2. **Run clippy linter**
-       - Run `cargo clippy -- -D warnings` in `rust/client-sdk/`
-       - Verify no clippy warnings
-       - Fix any linting issues if found
+    **Step 2: Implement connect() Method**
     
-    **Step 2: Run Unit Tests**
+    1. **Implement async connect() method**
+       - Validate configuration
+       - Create ConnectionManager
+       - Create AuthenticationManager with credentials
+       - Perform initial authentication
+       - Create DataClient with shared managers
+       - Create AdminClient with shared managers
+       - Return initialized Client
+       - _Requirements: 1.1_
     
-    1. **Execute all unit tests**
-       - Run `cargo test --lib` in `rust/client-sdk/`
-       - Verify all tests pass
-       - Review any test failures
+    **Step 3: Implement Access Methods**
     
-    **Step 3: Run Property-Based Tests**
+    1. **Implement data() and admin() methods**
+       - Return references to DataClient and AdminClient
+       - Provide clean API for accessing sub-clients
     
-    1. **Execute all property tests**
-       - Run `cargo test --lib -- --include-ignored` in `rust/client-sdk/`
-       - Verify all property tests pass with 100+ iterations
-       - Review any property test failures
+    **Step 4: Implement health_check() Method**
     
-    **Step 4: Run Integration Tests (if any)**
+    1. **Implement health_check() method**
+       - Query health from all nodes via ConnectionManager
+       - Aggregate results into ClusterHealth struct
+       - Return overall cluster health status
+       - _Requirements: 6.2_
     
-    1. **Execute integration tests**
-       - Run `cargo test --test '*'` in `rust/client-sdk/`
-       - Verify all integration tests pass
+    **Step 5: Implement disconnect() Method**
     
-    **Step 5: Verify Test Coverage**
+    1. **Implement graceful disconnect() method**
+       - Logout to invalidate token (best effort)
+       - Close all connections via ConnectionManager
+       - Release all resources
+       - _Requirements: 1.6_
     
-    1. **Review test results**
-       - Confirm all 42 correctness properties are tested
-       - Confirm all major components have tests
-       - Identify any gaps in test coverage
+    **Step 6: Export Client in lib.rs**
     
-    **Step 6: Ask User for Guidance**
+    1. **Update `rust/client-sdk/src/lib.rs`**
+       - Add `mod client;` declaration
+       - Export `pub use client::Client;`
+       - Ensure Client is part of public API
     
-    1. **If all tests pass**
-       - Report success to user
-       - Ask if ready to proceed to Task 15
+    **Step 7: Write Integration Tests**
     
-    2. **If tests fail**
-       - Report failures to user
-       - Ask for guidance on how to proceed
-       - Offer to fix failures or skip to next task
+    1. **Create integration test file**
+       - Test full connection lifecycle (connect → operations → disconnect)
+       - Test CRUD operations through Client
+       - Test transaction operations through Client
+       - Test admin operations through Client
+       - Test health check functionality
+       - _Requirements: 1.1, 1.6, 3.1, 3.2, 3.3, 3.4, 5.1, 5.3, 5.4_
   
   - **Success Criteria**:
-    - ✅ Code compiles without errors
-    - ✅ No clippy warnings
-    - ✅ All unit tests pass
-    - ✅ All property-based tests pass (100+ iterations each)
-    - ✅ No test failures or panics
-    - ✅ Code compiles in release mode
+    - ✅ Client struct implemented with all required fields
+    - ✅ connect() method successfully initializes all components
+    - ✅ Authentication performed during connect()
+    - ✅ data() and admin() methods provide access to sub-clients
+    - ✅ health_check() returns cluster health status
+    - ✅ disconnect() gracefully closes all connections
+    - ✅ Client exported in public API
+    - ✅ Integration tests pass
+    - ✅ Code compiles without errors or warnings
   
-  - **Subtasks**: None (checkpoint task)
+  - **Subtasks**:
+    - [ ] 15.1 Implement Client struct
+    - [ ] 15.2 Implement health_check()
+    - [ ]* 15.3 Write integration tests for Client
   
-  - _Requirements: All (validation checkpoint)_
+  - _Requirements: 1.1, 1.6, 6.2_
 
-- [-] 2. Complete and Setup Next Task: Mark Task 14 complete and setup Task 15 context
+- [ ] 2. Complete and Setup Next Task: Mark Task 15 complete and setup Task 16 context
   - **Automation Steps**:
-    1. **Commit ALL Task 14 validation results**: Run `git add -A` and commit any fixes or updates from Task 1
-    2. **Push validation commit**: Run `git push` to push the validation commit to upstream
-    3. Update FOUNDATION/tasks.md: Change `- [ ] 14` to `- [x] 14`
-    4. Create git commit documenting Task 14 completion in FOUNDATION
+    1. **Commit ALL Task 15 implementation**: Run `git add -A` and commit all Client implementation
+    2. **Push implementation commit**: Run `git push` to push the implementation to upstream
+    3. Update FOUNDATION/tasks.md: Change `- [ ] 15` to `- [x] 15`
+    4. Create git commit documenting Task 15 completion in FOUNDATION
     5. **Push FOUNDATION update**: Run `git push` to push the FOUNDATION update to upstream
-    6. Identify Next Task: Task 15 from FOUNDATION/tasks.md
-    7. Extract Context: Get Task 15 requirements from FOUNDATION files
+    6. Identify Next Task: Task 16 from FOUNDATION/tasks.md
+    7. Extract Context: Get Task 16 requirements from FOUNDATION files
     8. Update Active Files:
-       - Update requirements.md with Task 15 context
-       - Update design.md with Task 15 context
-       - Update this tasks.md with new 2-task cycle for Task 15
+       - Update requirements.md with Task 16 context
+       - Update design.md with Task 16 context
+       - Update this tasks.md with new 2-task cycle for Task 16
     9. Create final git commit with all spec updates
     10. **Push spec updates**: Run `git push` to push the spec updates to upstream
-  - **Expected Result**: Complete automation setup for Task 15 execution with minimal token consumption, all changes pushed to remote
-  - **CRITICAL**: Step 1 MUST commit all validation results before proceeding with spec updates
+  - **Expected Result**: Complete automation setup for Task 16 execution with minimal token consumption, all changes pushed to remote
+  - **CRITICAL**: Step 1 MUST commit all implementation before proceeding with spec updates
 
 ---
 
