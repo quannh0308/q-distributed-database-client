@@ -132,16 +132,19 @@ This is an automated 2-task cycle designed to minimize token consumption by load
 - [ ] 2. Complete and Setup Next Task: Mark Task 13 complete and setup Task 14 context
   - **Automation Steps**:
     1. **Commit ALL Task 13 implementation code**: Run `git add -A` and commit all implementation changes from Task 1
-    2. Update FOUNDATION/tasks.md: Change `- [ ] 13` to `- [x] 13`
-    3. Create git commit documenting Task 13 completion in FOUNDATION
-    4. Identify Next Task: Task 14 from FOUNDATION/tasks.md
-    5. Extract Context: Get Task 14 requirements from FOUNDATION files
-    6. Update Active Files:
+    2. **Push implementation commit**: Run `git push` to push the implementation commit to upstream
+    3. Update FOUNDATION/tasks.md: Change `- [ ] 13` to `- [x] 13`
+    4. Create git commit documenting Task 13 completion in FOUNDATION
+    5. **Push FOUNDATION update**: Run `git push` to push the FOUNDATION update to upstream
+    6. Identify Next Task: Task 14 from FOUNDATION/tasks.md
+    7. Extract Context: Get Task 14 requirements from FOUNDATION files
+    8. Update Active Files:
        - Update requirements.md with Task 14 context
        - Update design.md with Task 14 context
        - Update this tasks.md with new 2-task cycle for Task 14
-    7. Create final git commit with all spec updates
-  - **Expected Result**: Complete automation setup for Task 14 execution with minimal token consumption
+    9. Create final git commit with all spec updates
+    10. **Push spec updates**: Run `git push` to push the spec updates to upstream
+  - **Expected Result**: Complete automation setup for Task 14 execution with minimal token consumption, all changes pushed to remote
   - **CRITICAL**: Step 1 MUST commit all implementation code before proceeding with spec updates
 
 ---
