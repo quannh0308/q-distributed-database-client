@@ -1,213 +1,187 @@
 # Automated Task Execution Cycle
 
-**Current Task**: 9 - Implement transaction support
+**Current Task**: 11 - Implement result handling
 
 This is an automated 2-task cycle designed to minimize token consumption by loading only the current task context instead of the entire massive project specification.
 
 ## Tasks
 
-- [ ] 1. Execute Current Task (9): Implement transaction support
-  - **Task Objective**: Implement ACID transaction capabilities with commit, rollback, and automatic rollback on error
+- [ ] 1. Execute Current Task (11): Implement result handling
+  - **Task Objective**: Implement comprehensive result handling with Row, QueryResult, type conversion, and streaming support
   
   - **Implementation Steps**:
     
-    **Step 1: Implement Transaction Struct (Subtask 9.1)**
+    **Step 1: Implement Row and QueryResult Structs (Subtask 11.1)**
     
-    1. **Create Transaction struct in new file**
-       - Create `rust/client-sdk/src/transaction.rs`
-       - Define Transaction struct with fields:
-         - `connection: PooledConnection`
-         - `auth_token: AuthToken`
-         - `transaction_id: TransactionId`
-         - `is_committed: bool`
+    1. **Create result handling module**
+       - Create `rust/client-sdk/src/result.rs` (or add to existing file)
        - Add module declaration in `lib.rs`
     
-    2. **Implement execute() and query() methods**
-       - Implement `execute(&mut self, sql: &str) -> Result<ExecuteResult>`
-       - Implement `execute_with_params(&mut self, sql: &str, params: &[Value]) -> Result<ExecuteResult>`
-       - Implement `query(&mut self, sql: &str) -> Result<QueryResult>`
-       - Implement `query_with_params(&mut self, sql: &str, params: &[Value]) -> Result<QueryResult>`
-       - Include transaction_id in all operation requests
-       - Handle automatic rollback on operation errors
+    2. **Implement ColumnMetadata struct**
+       - Add to `types.rs` or `result.rs`
+       - Fields: name, data_type, nullable, ordinal
+       - Derive Debug, Clone, Serialize, Deserialize
     
-    3. **Track commit status**
-       - Initialize `is_committed` to false
-       - Set to true after successful commit or rollback
-       - Check status before operations to prevent use after commit/rollback
+    3. **Implement DataType enum**
+       - Add to `types.rs`
+       - Variants: Int, Float, String, Bool, Bytes, Timestamp, Null
+       - Derive Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize
     
-    **Step 2: Write Property Test for Transaction Context Creation (Subtask 9.2)*
+    4. **Implement Row struct**
+       - Fields: columns (Arc<Vec<ColumnMetadata>>), values (Vec<Value>)
+       - Implement new() constructor
+       - Implement get() for index-based access
+       - Implement get_by_name() for name-based access
+       - Implement len() and is_empty()
     
-    1. **Property 22: Transaction Context Creation**
-       - Test that begin_transaction() creates valid Transaction_Context
-       - Verify transaction has unique transaction ID
-       - Verify transaction has valid connection
-       - Verify transaction has valid auth token
-       - **Validates: Requirements 5.1**
+    5. **Implement QueryResult struct**
+       - Fields: columns (Vec<ColumnMetadata>), rows (Vec<Row>)
+       - Implement new() constructor
+       - Implement from_response() to convert from QueryResponse
+       - Implement len() and is_empty()
+       - Implement iter() and into_iter()
     
-    **Step 3: Write Property Test for Transaction Operation Association (Subtask 9.3)*
+    **Step 2: Write Property Tests for Result Handling (Subtask 11.2, 11.3, 11.4)*
     
-    1. **Property 23: Transaction Operation Association**
-       - Test that operations within transaction include transaction ID
-       - Generate random operations (execute, query)
-       - Verify all operations include the same transaction ID
-       - **Validates: Requirements 5.2**
+    1. **Write property test for result deserialization (11.2)**
+       - **Property 32: Result Deserialization**
+       - **Validates: Requirements 9.1**
+       - Test that all rows are deserialized without data loss
     
-    **Step 4: Implement commit() and rollback() (Subtask 9.4)**
+    2. **Write property test for result iteration (11.3)**
+       - **Property 33: Result Iteration**
+       - **Validates: Requirements 9.2**
+       - Test that iteration yields exactly the number of rows in metadata
     
-    1. **Implement commit() method**
-       - Check if already committed/rolled back
-       - Send COMMIT message with transaction_id
-       - Handle response (success or error)
-       - Mark transaction as committed on success
-       - Attempt rollback on commit failure
+    3. **Write property test for column access methods (11.4)**
+       - **Property 34: Column Access Methods**
+       - **Validates: Requirements 9.3**
+       - Test that get(index) and get_by_name(name) return same value
     
-    2. **Implement rollback() method**
-       - Check if already committed/rolled back
-       - Send ROLLBACK message with transaction_id
-       - Handle response (success or error)
-       - Mark transaction as committed (done) on success
-       - Return error if rollback fails
+    **Step 3: Implement Type Conversion (Subtask 11.5)**
     
-    **Step 5: Write Property Test for Transaction Atomicity (Subtask 9.5)*
+    1. **Add type conversion methods to Value enum**
+       - Implement as_i64() - convert Int to i64
+       - Implement as_f64() - convert Float to f64, Int to f64
+       - Implement as_string() - convert String to String
+       - Implement as_bool() - convert Bool to bool
+       - Implement as_bytes() - convert Bytes to Vec<u8>
+       - Implement as_timestamp() - convert Timestamp to DateTime<Utc>
+       - Implement type_name() - return type name as string
     
-    1. **Property 24: Transaction Atomicity**
-       - Test that committed transactions persist all changes
-       - Execute multiple operations in transaction
-       - Commit transaction
-       - Verify all changes are visible
-       - Test that failed transactions persist no changes
-       - **Validates: Requirements 5.3**
+    2. **Add type conversion methods to Row struct**
+       - Implement get_i64(index) - get and convert to i64
+       - Implement get_f64(index) - get and convert to f64
+       - Implement get_string(index) - get and convert to String
+       - Implement get_bool(index) - get and convert to bool
+       - Implement get_bytes(index) - get and convert to Vec<u8>
+       - Implement get_timestamp(index) - get and convert to DateTime<Utc>
     
-    **Step 6: Write Property Test for Rollback Discards Changes (Subtask 9.6)*
+    3. **Add error types for type conversion**
+       - Add TypeConversionError to DatabaseError enum
+       - Add ColumnNotFound to DatabaseError enum
+       - Add IndexOutOfBounds to DatabaseError enum
+       - Implement Display for new errors
     
-    1. **Property 25: Rollback Discards Changes**
-       - Test that rolled-back transactions discard all changes
-       - Execute multiple operations in transaction
-       - Rollback transaction
-       - Verify no changes are visible
-       - **Validates: Requirements 5.4**
+    **Step 4: Write Property Test for Type Conversion (Subtask 11.6)*
     
-    **Step 7: Implement Automatic Rollback on Error (Subtask 9.7)**
+    1. **Write property test for type conversion correctness**
+       - **Property 36: Type Conversion Correctness**
+       - **Validates: Requirements 9.5**
+       - Test that converting values preserves semantic meaning
+       - Test error cases for invalid conversions
     
-    1. **Add error handling to operation methods**
-       - Catch errors during execute() and query()
-       - Automatically call rollback() before returning error
-       - Log rollback attempt
-       - Return original operation error
+    **Step 5: Implement ResultStream for Large Results**
     
-    2. **Handle rollback errors**
-       - If rollback fails, log warning
-       - Still return original operation error
-       - Transaction is in unknown state
+    1. **Create ResultStream struct**
+       - Fields: connection, columns, buffer (VecDeque<Row>), finished
+       - Implement new() constructor
+       - Implement next() to fetch next row
+       - Implement columns() to get column metadata
     
-    **Step 8: Write Property Test for Automatic Rollback on Failure (Subtask 9.8)*
+    2. **Implement Stream trait for ResultStream**
+       - Implement poll_next() for async iteration
+       - Handle buffering and fetching from server
+       - Track finished state
     
-    1. **Property 26: Automatic Rollback on Failure**
-       - Test that errors trigger automatic rollback
-       - Execute operation that will fail
-       - Verify rollback was called
-       - Verify no changes are visible
-       - **Validates: Requirements 5.5**
+    3. **Write property test for streaming memory efficiency**
+       - **Property 35: Streaming Memory Efficiency**
+       - **Validates: Requirements 9.4**
+       - Test that memory usage remains bounded
     
-    **Step 9: Implement Drop Trait for Automatic Rollback (Subtask 9.9)**
+    **Step 6: Update DataClient Integration**
     
-    1. **Implement Drop trait**
-       - Check if transaction is committed
-       - If not committed, attempt rollback
-       - Use blocking call (Drop cannot be async)
-       - Log warning if rollback fails
-       - Don't panic on rollback failure
+    1. **Update query() method**
+       - Return QueryResult instead of raw QueryResponse
+       - Use QueryResult::from_response()
     
-    2. **Test Drop behavior**
-       - Create transaction
-       - Execute operations
-       - Drop transaction without commit/rollback
-       - Verify rollback was attempted
+    2. **Update query_with_params() method**
+       - Return QueryResult instead of raw QueryResponse
+       - Use QueryResult::from_response()
     
-    **Step 10: Implement begin_transaction() in DataClient (Subtask 9.10)**
+    3. **Implement query_stream() method**
+       - Return ResultStream for large results
+       - Send query request
+       - Receive first response for column metadata
+       - Create and return ResultStream
     
-    1. **Add begin_transaction() method to DataClient**
-       - Acquire connection from pool
-       - Get valid auth token
-       - Generate unique transaction ID (UUID)
-       - Send BEGIN TRANSACTION message
-       - Handle response
-       - Return Transaction instance
+    **Step 7: Export New Types**
     
-    2. **Handle errors**
-       - Return connection to pool on error
-       - Return clear error message
-       - Support configurable isolation level
+    1. **Update lib.rs exports**
+       - Export Row, QueryResult, ColumnMetadata, DataType
+       - Export ResultStream
+       - Export new error types
     
-    3. **Update protocol types**
-       - Add TransactionRequest enum
-       - Add TransactionResponse enum
-       - Add IsolationLevel enum
-       - Update Request and Response enums
+    **Step 8: Integration Testing**
     
-    **Step 11: Integration Testing**
+    1. **Test result handling end-to-end**
+       - Query with results
+       - Access columns by index and name
+       - Iterate through rows
+       - Test type conversions
     
-    1. **Test complete transaction flow**
-       - Begin transaction
-       - Execute multiple operations
-       - Commit transaction
-       - Verify all changes persisted
+    2. **Test streaming results**
+       - Query large result set
+       - Stream rows incrementally
+       - Verify memory efficiency
     
-    2. **Test rollback flow**
-       - Begin transaction
-       - Execute operations
-       - Rollback transaction
-       - Verify no changes persisted
-    
-    3. **Test automatic rollback**
-       - Begin transaction
-       - Execute operation that fails
-       - Verify automatic rollback
-       - Verify no changes persisted
-    
-    4. **Test Drop rollback**
-       - Begin transaction
-       - Execute operations
-       - Drop transaction
-       - Verify rollback was attempted
+    3. **Test error scenarios**
+       - Invalid column index
+       - Invalid column name
+       - Type conversion errors
   
   - **Success Criteria**:
-    - ✅ Transaction struct implemented with all methods
-    - ✅ begin_transaction() creates valid transaction context
-    - ✅ Operations include transaction_id in requests
-    - ✅ commit() persists all changes atomically
-    - ✅ rollback() discards all changes
-    - ✅ Automatic rollback on error works correctly
-    - ✅ Drop trait implements automatic rollback
-    - ✅ All property tests pass (Properties 22-26)
+    - ✅ Row struct implemented with get() and get_by_name()
+    - ✅ QueryResult struct implemented with iteration
+    - ✅ ColumnMetadata and DataType implemented
+    - ✅ Type conversion methods for all Value types
+    - ✅ ResultStream implemented for streaming
+    - ✅ Error handling for result operations
+    - ✅ Property tests passing
     - ✅ Integration with DataClient complete
     - ✅ All tests compile and pass
   
   - **Subtasks**:
-    - [ ] 9.1 Implement Transaction struct
-    - [ ]* 9.2 Write property test for transaction context creation (Property 22)
-    - [ ]* 9.3 Write property test for transaction operation association (Property 23)
-    - [ ] 9.4 Implement commit() and rollback()
-    - [ ]* 9.5 Write property test for transaction atomicity (Property 24)
-    - [ ]* 9.6 Write property test for rollback discards changes (Property 25)
-    - [ ] 9.7 Implement automatic rollback on error
-    - [ ]* 9.8 Write property test for automatic rollback on failure (Property 26)
-    - [ ] 9.9 Implement Drop trait for automatic rollback
-    - [ ] 9.10 Implement begin_transaction() in DataClient
+    - [ ] 11.1 Implement Row and QueryResult structs
+    - [ ]* 11.2 Write property test for result deserialization
+    - [ ]* 11.3 Write property test for result iteration
+    - [ ]* 11.4 Write property test for column access methods
+    - [ ] 11.5 Implement type conversion
+    - [ ]* 11.6 Write property test for type conversion correctness
   
-  - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
+  - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
 
-- [x] 2. Complete and Setup Next Task: Mark Task 8 complete and setup Task 9 context
+- [-] 2. Complete and Setup Next Task: Mark Task 11 complete and setup Task 12 context
   - **Automation Steps**:
-    1. Update FOUNDATION/tasks.md: Change `- [ ] 8` to `- [x] 8`
-    2. Identify Next Task: Task 9 - Implement transaction support
-    3. Extract Context: Get transaction requirements from FOUNDATION files
-    4. Update Active Files:
-       - Update requirements.md with Task 9 context
-       - Update design.md with Task 9 context
-       - Update this tasks.md with new 2-task cycle for Task 9
-    5. Commit Changes: Create git commit documenting Task 8 completion
-  - **Expected Result**: Complete automation setup for Task 9 execution with minimal token consumption
+    1. Update FOUNDATION/tasks.md: Change `- [ ] 11` to `- [x] 11`
+    2. Create git commit documenting Task 11 completion
+    3. Identify Next Task: Task 12 from FOUNDATION/tasks.md
+    4. Extract Context: Get Task 12 requirements from FOUNDATION files
+    5. Update Active Files:
+       - Update requirements.md with Task 12 context
+       - Update design.md with Task 12 context
+       - Update this tasks.md with new 2-task cycle for Task 12
+  - **Expected Result**: Complete automation setup for Task 12 execution with minimal token consumption
 
 ---
 
