@@ -3,13 +3,14 @@
 //! This module defines a comprehensive error hierarchy for all possible
 //! failure modes in the client SDK.
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// The main error type for the Q-Distributed-Database Client SDK
 ///
 /// This enum covers all possible error conditions that can occur during
 /// client operations, from connection failures to query errors.
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, Clone, Serialize, Deserialize)]
 pub enum DatabaseError {
     // Connection Errors
     /// Connection attempt timed out

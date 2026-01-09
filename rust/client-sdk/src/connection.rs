@@ -9,12 +9,44 @@ use crate::types::{ConnectionConfig, NodeId, PoolConfig, Timestamp};
 use crate::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
+use std::future::Future;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::timeout;
+
+/// Executes an operation with a timeout
+///
+/// Wraps any async operation with a timeout, returning a TimeoutError if the
+/// operation doesn't complete within the specified duration.
+///
+/// # Arguments
+///
+/// * `operation` - The async operation to execute
+/// * `timeout_ms` - Timeout duration in milliseconds
+/// * `operation_name` - Name of the operation for error reporting
+///
+/// # Returns
+///
+/// The result of the operation, or a TimeoutError if it times out
+pub async fn execute_with_timeout<F, T>(
+    operation: F,
+    timeout_ms: u64,
+    operation_name: &str,
+) -> Result<T>
+where
+    F: Future<Output = Result<T>>,
+{
+    match timeout(Duration::from_millis(timeout_ms), operation).await {
+        Ok(result) => result,
+        Err(_) => Err(DatabaseError::TimeoutError {
+            operation: operation_name.to_string(),
+            timeout_ms,
+        }),
+    }
+}
 
 /// Protocol type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -237,6 +269,23 @@ impl Connection {
     /// Gets the authentication token
     pub fn auth_token(&self) -> Option<&crate::auth::AuthToken> {
         self.auth_token.as_ref()
+    }
+
+    /// Sends a request with timeout and retry logic
+    ///
+    /// This is a convenience method that wraps send_request with timeout handling.
+    pub async fn send_request_with_timeout(
+        &mut self,
+        message_type: MessageType,
+        payload: Vec<u8>,
+        timeout_ms: u64,
+    ) -> Result<Message> {
+        execute_with_timeout(
+            self.send_request(message_type, payload, timeout_ms),
+            timeout_ms,
+            "send_request",
+        )
+        .await
     }
 }
 
@@ -512,9 +561,9 @@ impl ConnectionManager {
     }
 
     /// Executes an operation with retry logic and exponential backoff
-    pub async fn execute_with_retry<F, Fut, T>(&self, operation: F) -> Result<T>
+    pub async fn execute_with_retry<F, Fut, T>(&self, mut operation: F) -> Result<T>
     where
-        F: Fn() -> Fut,
+        F: FnMut() -> Fut,
         Fut: std::future::Future<Output = Result<T>>,
     {
         let retry_config = &self.config.retry_config;
@@ -526,13 +575,17 @@ impl ConnectionManager {
                 Ok(result) => return Ok(result),
                 Err(e) if retries < retry_config.max_retries && e.is_retryable() => {
                     retries += 1;
+                    
                     tokio::time::sleep(delay).await;
                     
                     // Calculate next delay with exponential backoff
                     let next_delay_ms = (delay.as_millis() as f64 * retry_config.backoff_multiplier) as u64;
                     delay = Duration::from_millis(next_delay_ms.min(retry_config.max_backoff_ms));
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    // Return the current error (which is the last error after all retries)
+                    return Err(e);
+                }
             }
         }
     }
@@ -794,6 +847,176 @@ mod property_tests {
             } else {
                 prop_assert_eq!(selected, ProtocolType::UDP, "UDP should be selected when only UDP available");
             }
+        }
+    }
+
+    // Property 28: Timeout Enforcement
+    // Feature: client-sdk, Property 28: For any operation with configured timeout, the operation should fail with a timeout error if it exceeds the timeout duration
+    // Validates: Requirements 8.2
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+        
+        #[test]
+        fn prop_timeout_enforcement(
+            timeout_ms in 10u64..100u64,
+            delay_ms in 150u64..300u64,
+        ) {
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
+                // Create an operation that takes longer than the timeout
+                let operation = async {
+                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                    Ok::<(), DatabaseError>(())
+                };
+
+                let result = execute_with_timeout(operation, timeout_ms, "test_operation").await;
+
+                // Should timeout since delay_ms > timeout_ms
+                prop_assert!(result.is_err());
+                if let Err(DatabaseError::TimeoutError { operation, timeout_ms: actual_timeout }) = result {
+                    prop_assert_eq!(operation, "test_operation");
+                    prop_assert_eq!(actual_timeout, timeout_ms);
+                } else {
+                    prop_assert!(false, "Expected TimeoutError, got {:?}", result);
+                }
+                Ok(())
+            })?;
+        }
+    }
+
+    // Property 29: Structured Error Information
+    // Feature: client-sdk, Property 29: For any error, the error object should contain an error code, message, and context information
+    // Validates: Requirements 8.3
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+        
+        #[test]
+        fn prop_structured_error_information(
+            host in "[a-z]+:[0-9]{4}",
+            timeout_ms in 1000u64..10000u64,
+        ) {
+            let error = DatabaseError::ConnectionTimeout {
+                host: host.clone(),
+                timeout_ms,
+            };
+
+            // Verify error has a message
+            let message = error.to_string();
+            prop_assert!(!message.is_empty());
+            prop_assert!(message.contains(&host));
+            prop_assert!(message.contains(&timeout_ms.to_string()));
+
+            // Verify error is serializable using bincode
+            let serialized = bincode::serialize(&error);
+            prop_assert!(serialized.is_ok(), "Error should be serializable");
+            
+            // Verify we can get the bytes
+            let bytes = serialized.unwrap();
+            prop_assert!(!bytes.is_empty(), "Serialized bytes should not be empty");
+        }
+    }
+
+    // Property 30: Retry Exhaustion Returns Last Error
+    // Feature: client-sdk, Property 30: For any operation that fails after all retry attempts, the returned error should be the last error encountered
+    // Validates: Requirements 8.5
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+        
+        #[test]
+        fn prop_retry_exhaustion_returns_last_error(
+            max_retries in 1u32..5u32,
+        ) {
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
+                let retry_config = RetryConfig {
+                    max_retries,
+                    initial_backoff_ms: 1,
+                    max_backoff_ms: 10,
+                    backoff_multiplier: 2.0,
+                };
+
+                let config = ConnectionConfig {
+                    retry_config,
+                    ..Default::default()
+                };
+
+                let manager = ConnectionManager::new(config);
+
+                let attempt = Arc::new(AtomicU32::new(0));
+                let attempt_clone = attempt.clone();
+                
+                let result: std::result::Result<(), DatabaseError> = manager.execute_with_retry(move || {
+                    let current_attempt = attempt_clone.fetch_add(1, Ordering::SeqCst) + 1;
+                    async move {
+                        // Return a retryable error with the attempt number
+                        Err(DatabaseError::ConnectionTimeout {
+                            host: format!("attempt-{}", current_attempt),
+                            timeout_ms: current_attempt as u64,
+                        })
+                    }
+                }).await;
+
+                // Should fail after all retries
+                prop_assert!(result.is_err());
+                
+                // Should return the last error (attempt max_retries + 1)
+                if let Err(DatabaseError::ConnectionTimeout { host, timeout_ms }) = result {
+                    let expected_attempts = max_retries + 1;
+                    prop_assert_eq!(host, format!("attempt-{}", expected_attempts));
+                    prop_assert_eq!(timeout_ms, expected_attempts as u64);
+                } else {
+                    prop_assert!(false, "Expected ConnectionTimeout error");
+                }
+                Ok(())
+            })?;
+        }
+    }
+
+    // Property 31: Custom Retry Policy Respect
+    // Feature: client-sdk, Property 31: For any configured custom retry policy, the retry behavior should match the policy's parameters (max retries, backoff)
+    // Validates: Requirements 8.6
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+        
+        #[test]
+        fn prop_custom_retry_policy_respect(
+            max_retries in 0u32..5u32,
+            initial_backoff_ms in 1u64..50u64,
+        ) {
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
+                let retry_config = RetryConfig {
+                    max_retries,
+                    initial_backoff_ms,
+                    max_backoff_ms: 1000,
+                    backoff_multiplier: 2.0,
+                };
+
+                let config = ConnectionConfig {
+                    retry_config,
+                    ..Default::default()
+                };
+
+                let manager = ConnectionManager::new(config);
+
+                let attempt_count = Arc::new(AtomicU32::new(0));
+                let attempt_count_clone = attempt_count.clone();
+                
+                let result: std::result::Result<(), DatabaseError> = manager.execute_with_retry(move || {
+                    attempt_count_clone.fetch_add(1, Ordering::SeqCst);
+                    async move {
+                        Err(DatabaseError::ConnectionTimeout {
+                            host: "test".to_string(),
+                            timeout_ms: 1000,
+                        })
+                    }
+                }).await;
+
+                // Should fail
+                prop_assert!(result.is_err());
+                
+                // Should have attempted exactly max_retries + 1 times (initial + retries)
+                let final_count = attempt_count.load(Ordering::SeqCst);
+                prop_assert_eq!(final_count, max_retries + 1);
+                Ok(())
+            })?;
         }
     }
 }

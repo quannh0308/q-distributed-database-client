@@ -385,6 +385,61 @@ impl Default for RetryConfig {
     }
 }
 
+impl RetryConfig {
+    /// Creates a new retry configuration with custom parameters
+    pub fn new(
+        max_retries: u32,
+        initial_backoff_ms: u64,
+        max_backoff_ms: u64,
+        backoff_multiplier: f64,
+    ) -> Self {
+        Self {
+            max_retries,
+            initial_backoff_ms,
+            max_backoff_ms,
+            backoff_multiplier,
+        }
+    }
+
+    /// Creates a retry configuration with no retries
+    ///
+    /// Use this when you want operations to fail immediately without retrying.
+    pub fn no_retry() -> Self {
+        Self {
+            max_retries: 0,
+            initial_backoff_ms: 0,
+            max_backoff_ms: 0,
+            backoff_multiplier: 1.0,
+        }
+    }
+
+    /// Creates an aggressive retry configuration
+    ///
+    /// More retries with shorter delays, suitable for operations that need
+    /// to succeed quickly or fail fast.
+    pub fn aggressive() -> Self {
+        Self {
+            max_retries: 5,
+            initial_backoff_ms: 50,
+            max_backoff_ms: 2000,
+            backoff_multiplier: 1.5,
+        }
+    }
+
+    /// Creates a conservative retry configuration
+    ///
+    /// Fewer retries with longer delays, suitable for operations that can
+    /// tolerate longer wait times.
+    pub fn conservative() -> Self {
+        Self {
+            max_retries: 2,
+            initial_backoff_ms: 200,
+            max_backoff_ms: 10000,
+            backoff_multiplier: 3.0,
+        }
+    }
+}
+
 /// User role in the database
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Role {
@@ -784,6 +839,42 @@ mod tests {
         let config2 = config1.clone();
         assert_eq!(config1.max_retries, config2.max_retries);
         assert_eq!(config1.backoff_multiplier, config2.backoff_multiplier);
+    }
+
+    #[test]
+    fn test_retry_config_new() {
+        let config = RetryConfig::new(5, 200, 10000, 3.0);
+        assert_eq!(config.max_retries, 5);
+        assert_eq!(config.initial_backoff_ms, 200);
+        assert_eq!(config.max_backoff_ms, 10000);
+        assert_eq!(config.backoff_multiplier, 3.0);
+    }
+
+    #[test]
+    fn test_retry_config_no_retry() {
+        let config = RetryConfig::no_retry();
+        assert_eq!(config.max_retries, 0);
+        assert_eq!(config.initial_backoff_ms, 0);
+        assert_eq!(config.max_backoff_ms, 0);
+        assert_eq!(config.backoff_multiplier, 1.0);
+    }
+
+    #[test]
+    fn test_retry_config_aggressive() {
+        let config = RetryConfig::aggressive();
+        assert_eq!(config.max_retries, 5);
+        assert_eq!(config.initial_backoff_ms, 50);
+        assert_eq!(config.max_backoff_ms, 2000);
+        assert_eq!(config.backoff_multiplier, 1.5);
+    }
+
+    #[test]
+    fn test_retry_config_conservative() {
+        let config = RetryConfig::conservative();
+        assert_eq!(config.max_retries, 2);
+        assert_eq!(config.initial_backoff_ms, 200);
+        assert_eq!(config.max_backoff_ms, 10000);
+        assert_eq!(config.backoff_multiplier, 3.0);
     }
 
     // Role and Permission Tests
