@@ -15,8 +15,8 @@ The Q-Distributed-Database Client SDK provides a multi-language client library f
 - **Transactions**: ACID transactions with automatic rollback
 - **Admin Operations**: Cluster and user management capabilities
 - **Result Handling**: Type-safe result processing with streaming support
+- **Error Handling**: Comprehensive error types with automatic retry and exponential backoff
 - **Message Protocol**: Bincode serialization with CRC32 checksums, length-prefixed framing
-- **Error Handling**: Automatic retry with exponential backoff
 - **Multi-Language**: Rust, Python, TypeScript implementations
 
 ## Technical Specifications
@@ -28,238 +28,145 @@ The Q-Distributed-Database Client SDK provides a multi-language client library f
 - **Connection Pool**: 5-20 connections (configurable)
 - **Timeout**: 5000ms (default)
 - **Token TTL**: 24 hours (default)
+- **Retry Policy**: Max 3 retries, exponential backoff (100ms initial, 5000ms max)
 
 ## Current Task Requirements
 
-### Task 11: Implement Result Handling
+### Task 12: Implement Error Handling
 
-This task implements comprehensive result handling capabilities, including Row and QueryResult structs, type conversion, and efficient result processing.
+This task implements comprehensive error handling capabilities, including enhanced error types, timeout handling, and custom retry policies.
 
-#### Result Handling Overview
+#### Error Handling Overview
 
-The result handling system enables developers to:
-- Access query results through type-safe interfaces
-- Iterate through result sets efficiently
-- Access columns by index or name
-- Convert database types to native language types
-- Stream large result sets with minimal memory usage
+The error handling system enables developers to:
+- Receive structured error information with context
+- Handle timeouts gracefully across all network operations
+- Configure custom retry policies for different scenarios
+- Automatically retry transient failures with exponential backoff
+- Distinguish between retryable and non-retryable errors
 
-The result handling components work with the DataClient to provide a seamless experience for processing query results.
+The error handling components work throughout the SDK to provide a robust and resilient experience when dealing with failures.
 
 #### Key Requirements
 
-**From Requirement 9: Result Handling and Serialization**
+**From Requirement 8: Error Handling and Resilience**
 
-1. **Result Deserialization (9.1)**
-   - WHEN receiving query results, THE Client_SDK SHALL deserialize rows into language-native data structures
-   - Rows must be deserialized without data loss
-   - All database types must be properly converted
+1. **Automatic Retry with Exponential Backoff (8.1)**
+   - WHEN network errors occur, THE Client_SDK SHALL retry operations with exponential backoff
+   - Retry delays must increase exponentially: delay_n = delay_(n-1) * multiplier
+   - Must respect configured max_retries limit
+   - Must respect configured max_backoff_ms limit
 
-2. **Result Iteration (9.2)**
-   - WHEN iterating results, THE Result_Set SHALL provide iterator/cursor interfaces for efficient traversal
-   - Iterator must yield exactly the number of rows indicated in metadata
-   - Iteration must be memory-efficient
+2. **Timeout Handling (8.2)**
+   - WHEN timeout errors occur, THE Client_SDK SHALL return timeout errors after configured timeout period
+   - All network operations must have timeout enforcement
+   - Timeout must be configurable per operation
+   - Default timeout: 5000ms
 
-3. **Column Access (9.3)**
-   - WHEN accessing columns, THE Result_Set SHALL support both index-based and name-based column access
-   - Index-based access: `row.get(0)` returns first column
-   - Name-based access: `row.get_by_name("id")` returns column by name
-   - Both methods must return the same value for the same column
+3. **Structured Error Information (8.3)**
+   - WHEN database errors occur, THE Client_SDK SHALL return structured error information with error codes
+   - Error must include error type, message, and context
+   - Error must be serializable for logging and debugging
+   - Error must implement Display and Error traits
 
-4. **Streaming Results (9.4)**
-   - WHEN handling large result sets, THE Client_SDK SHALL support streaming results to minimize memory usage
-   - Memory usage must remain bounded regardless of result set size
-   - Streaming must support backpressure
+4. **Transient Error Retry (8.4)**
+   - WHEN transient errors occur, THE Client_SDK SHALL automatically retry the operation
+   - Transient errors include: ConnectionTimeout, ConnectionLost, NetworkError, TimeoutError
+   - Non-transient errors should not be retried
 
-5. **Type Conversion (9.5)**
-   - WHERE type conversion is needed, THE Client_SDK SHALL automatically convert database types to native types
-   - Conversions must preserve semantic meaning
-   - Supported conversions: Int → i64, Float → f64, String → String, Bool → bool, Timestamp → DateTime, Bytes → Vec<u8>
+5. **Retry Exhaustion (8.5)**
+   - IF all retry attempts fail, THEN THE Client_SDK SHALL return the last error encountered
+   - Error must indicate that retries were exhausted
+   - Error must include retry count and last error details
 
-6. **Type Conversion Errors (9.6)**
-   - IF type conversion fails, THEN THE Client_SDK SHALL return a clear error indicating the conversion failure
-   - Error must include source type, target type, and value that failed
+6. **Custom Retry Policies (8.6)**
+   - WHERE custom retry policies are configured, THE Client_SDK SHALL respect the configured retry behavior
+   - Custom policies must support: max_retries, initial_backoff_ms, max_backoff_ms, backoff_multiplier
+   - Custom policies must be configurable per client instance
 
 #### Implementation Components
 
-**1. Row Struct**
-
-```rust
-pub struct Row {
-    columns: Arc<Vec<ColumnMetadata>>,
-    values: Vec<Value>,
-}
-
-impl Row {
-    pub fn get(&self, index: usize) -> Option<&Value>;
-    pub fn get_by_name(&self, name: &str) -> Option<&Value>;
-    pub fn len(&self) -> usize;
-    pub fn is_empty(&self) -> bool;
-    
-    // Type conversion methods
-    pub fn get_i64(&self, index: usize) -> Result<i64>;
-    pub fn get_f64(&self, index: usize) -> Result<f64>;
-    pub fn get_string(&self, index: usize) -> Result<String>;
-    pub fn get_bool(&self, index: usize) -> Result<bool>;
-    pub fn get_bytes(&self, index: usize) -> Result<Vec<u8>>;
-    pub fn get_timestamp(&self, index: usize) -> Result<DateTime<Utc>>;
-}
-```
-
-**2. QueryResult Struct**
-
-```rust
-pub struct QueryResult {
-    pub columns: Vec<ColumnMetadata>,
-    pub rows: Vec<Row>,
-}
-
-impl QueryResult {
-    pub fn new(columns: Vec<ColumnMetadata>, rows: Vec<Row>) -> Self;
-    pub fn len(&self) -> usize;
-    pub fn is_empty(&self) -> bool;
-    pub fn iter(&self) -> impl Iterator<Item = &Row>;
-    pub fn into_iter(self) -> impl Iterator<Item = Row>;
-}
-```
-
-**3. ColumnMetadata Struct**
-
-```rust
-pub struct ColumnMetadata {
-    pub name: String,
-    pub data_type: DataType,
-    pub nullable: bool,
-    pub ordinal: usize,
-}
-
-pub enum DataType {
-    Int,
-    Float,
-    String,
-    Bool,
-    Bytes,
-    Timestamp,
-    Null,
-}
-```
-
-**4. ResultStream for Large Results**
-
-```rust
-pub struct ResultStream {
-    connection: PooledConnection,
-    columns: Arc<Vec<ColumnMetadata>>,
-    buffer: VecDeque<Row>,
-    finished: bool,
-}
-
-impl ResultStream {
-    pub async fn next(&mut self) -> Result<Option<Row>>;
-    pub fn columns(&self) -> &[ColumnMetadata];
-}
-
-impl Stream for ResultStream {
-    type Item = Result<Row>;
-    
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>>;
-}
-```
-
-**5. Type Conversion Implementation**
-
-```rust
-impl Value {
-    pub fn as_i64(&self) -> Result<i64> {
-        match self {
-            Value::Int(i) => Ok(*i),
-            _ => Err(DatabaseError::TypeConversionError {
-                from: self.type_name(),
-                to: "i64",
-                value: format!("{:?}", self),
-            }),
-        }
-    }
-    
-    pub fn as_f64(&self) -> Result<f64> {
-        match self {
-            Value::Float(f) => Ok(*f),
-            Value::Int(i) => Ok(*i as f64),
-            _ => Err(DatabaseError::TypeConversionError {
-                from: self.type_name(),
-                to: "f64",
-                value: format!("{:?}", self),
-            }),
-        }
-    }
-    
-    pub fn as_string(&self) -> Result<String> {
-        match self {
-            Value::String(s) => Ok(s.clone()),
-            _ => Err(DatabaseError::TypeConversionError {
-                from: self.type_name(),
-                to: "String",
-                value: format!("{:?}", self),
-            }),
-        }
-    }
-    
-    pub fn as_bool(&self) -> Result<bool> {
-        match self {
-            Value::Bool(b) => Ok(*b),
-            _ => Err(DatabaseError::TypeConversionError {
-                from: self.type_name(),
-                to: "bool",
-                value: format!("{:?}", self),
-            }),
-        }
-    }
-    
-    pub fn as_bytes(&self) -> Result<Vec<u8>> {
-        match self {
-            Value::Bytes(b) => Ok(b.clone()),
-            _ => Err(DatabaseError::TypeConversionError {
-                from: self.type_name(),
-                to: "Vec<u8>",
-                value: format!("{:?}", self),
-            }),
-        }
-    }
-    
-    pub fn as_timestamp(&self) -> Result<DateTime<Utc>> {
-        match self {
-            Value::Timestamp(ts) => Ok(*ts),
-            _ => Err(DatabaseError::TypeConversionError {
-                from: self.type_name(),
-                to: "DateTime<Utc>",
-                value: format!("{:?}", self),
-            }),
-        }
-    }
-    
-    fn type_name(&self) -> &'static str {
-        match self {
-            Value::Null => "Null",
-            Value::Int(_) => "Int",
-            Value::Float(_) => "Float",
-            Value::String(_) => "String",
-            Value::Bool(_) => "Bool",
-            Value::Bytes(_) => "Bytes",
-            Value::Timestamp(_) => "Timestamp",
-        }
-    }
-}
-```
-
-#### Error Handling
-
-**Type Conversion Errors:**
+**1. Enhanced DatabaseError Enum**
 
 ```rust
 pub enum DatabaseError {
-    // ... existing errors ...
+    // Connection Errors
+    ConnectionTimeout { 
+        host: String, 
+        timeout_ms: u64 
+    },
+    ConnectionRefused { 
+        host: String 
+    },
+    ConnectionLost { 
+        node_id: NodeId 
+    },
     
-    // Type Conversion Errors
+    // Authentication Errors
+    AuthenticationFailed { 
+        reason: String 
+    },
+    TokenExpired { 
+        expired_at: Timestamp 
+    },
+    InvalidCredentials,
+    
+    // Query Errors
+    SyntaxError { 
+        sql: String, 
+        position: usize, 
+        message: String 
+    },
+    TableNotFound { 
+        table_name: String 
+    },
+    ColumnNotFound { 
+        column_name: String 
+    },
+    ConstraintViolation { 
+        constraint: String, 
+        details: String 
+    },
+    
+    // Transaction Errors
+    TransactionAborted { 
+        transaction_id: TransactionId, 
+        reason: String 
+    },
+    DeadlockDetected { 
+        transaction_id: TransactionId 
+    },
+    IsolationViolation { 
+        details: String 
+    },
+    
+    // Protocol Errors
+    SerializationError { 
+        message: String 
+    },
+    ChecksumMismatch { 
+        expected: u32, 
+        actual: u32 
+    },
+    MessageTooLarge { 
+        size: usize, 
+        max_size: usize 
+    },
+    ProtocolVersionMismatch { 
+        client_version: u8, 
+        server_version: u8 
+    },
+    
+    // Network Errors
+    NetworkError { 
+        details: String 
+    },
+    TimeoutError { 
+        operation: String, 
+        timeout_ms: u64 
+    },
+    
+    // Result Handling Errors
     TypeConversionError {
         from: String,
         to: &'static str,
@@ -272,19 +179,167 @@ pub enum DatabaseError {
         index: usize,
         max: usize,
     },
+    
+    // Internal Errors
+    InternalError { 
+        component: String, 
+        details: String 
+    },
+}
+
+impl std::fmt::Display for DatabaseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DatabaseError::ConnectionTimeout { host, timeout_ms } => {
+                write!(f, "Connection timeout to {} after {}ms", host, timeout_ms)
+            }
+            DatabaseError::TimeoutError { operation, timeout_ms } => {
+                write!(f, "Operation '{}' timed out after {}ms", operation, timeout_ms)
+            }
+            // ... other variants
+        }
+    }
+}
+
+impl std::error::Error for DatabaseError {}
+```
+
+**2. Timeout Handling**
+
+```rust
+use tokio::time::{timeout, Duration};
+
+pub async fn execute_with_timeout<F, T>(
+    operation: F,
+    timeout_ms: u64,
+    operation_name: &str,
+) -> Result<T>
+where
+    F: Future<Output = Result<T>>,
+{
+    match timeout(Duration::from_millis(timeout_ms), operation).await {
+        Ok(result) => result,
+        Err(_) => Err(DatabaseError::TimeoutError {
+            operation: operation_name.to_string(),
+            timeout_ms,
+        }),
+    }
+}
+```
+
+**3. Enhanced Retry Logic**
+
+```rust
+pub async fn execute_with_retry<F, T>(
+    operation: F,
+    retry_config: &RetryConfig,
+) -> Result<T>
+where
+    F: Fn() -> Future<Output = Result<T>>,
+{
+    let mut retries = 0;
+    let mut delay = Duration::from_millis(retry_config.initial_backoff_ms);
+    let mut last_error = None;
+    
+    loop {
+        match operation().await {
+            Ok(result) => return Ok(result),
+            Err(e) if retries < retry_config.max_retries && is_retryable(&e) => {
+                last_error = Some(e);
+                retries += 1;
+                tokio::time::sleep(delay).await;
+                delay = std::cmp::min(
+                    Duration::from_millis(
+                        (delay.as_millis() as f64 * retry_config.backoff_multiplier) as u64
+                    ),
+                    Duration::from_millis(retry_config.max_backoff_ms)
+                );
+            }
+            Err(e) => {
+                // Return last error if retries exhausted, otherwise return current error
+                return Err(last_error.unwrap_or(e));
+            }
+        }
+    }
+}
+
+pub fn is_retryable(error: &DatabaseError) -> bool {
+    matches!(error,
+        DatabaseError::ConnectionTimeout { .. } |
+        DatabaseError::ConnectionLost { .. } |
+        DatabaseError::NetworkError { .. } |
+        DatabaseError::TimeoutError { .. }
+    )
+}
+```
+
+**4. Custom Retry Policies**
+
+```rust
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    pub max_retries: u32,             // Default: 3
+    pub initial_backoff_ms: u64,      // Default: 100
+    pub max_backoff_ms: u64,          // Default: 5000
+    pub backoff_multiplier: f64,      // Default: 2.0
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            initial_backoff_ms: 100,
+            max_backoff_ms: 5000,
+            backoff_multiplier: 2.0,
+        }
+    }
+}
+
+impl RetryConfig {
+    pub fn new(
+        max_retries: u32,
+        initial_backoff_ms: u64,
+        max_backoff_ms: u64,
+        backoff_multiplier: f64,
+    ) -> Self {
+        Self {
+            max_retries,
+            initial_backoff_ms,
+            max_backoff_ms,
+            backoff_multiplier,
+        }
+    }
+    
+    pub fn no_retry() -> Self {
+        Self {
+            max_retries: 0,
+            initial_backoff_ms: 0,
+            max_backoff_ms: 0,
+            backoff_multiplier: 1.0,
+        }
+    }
+    
+    pub fn aggressive() -> Self {
+        Self {
+            max_retries: 5,
+            initial_backoff_ms: 50,
+            max_backoff_ms: 2000,
+            backoff_multiplier: 1.5,
+        }
+    }
 }
 ```
 
 #### Success Criteria
 
-- ✅ Row struct implemented with get() and get_by_name() methods
-- ✅ QueryResult struct implemented with iteration support
-- ✅ ColumnMetadata struct implemented
-- ✅ Type conversion methods implemented for all Value types
-- ✅ ResultStream implemented for streaming large results
-- ✅ Type conversion errors properly handled
-- ✅ Property tests for result deserialization, iteration, and column access
-- ✅ Property test for type conversion correctness
+- ✅ DatabaseError enum enhanced with all error variants
+- ✅ Display and Error traits implemented for DatabaseError
+- ✅ Timeout handling implemented for all network operations
+- ✅ Custom retry policies configurable
+- ✅ Retry logic respects custom policies
+- ✅ Transient errors automatically retried
+- ✅ Non-retryable errors returned immediately
+- ✅ Property tests for error handling passing
 - ✅ All tests passing
 
 #### What Has Been Implemented So Far
@@ -297,19 +352,20 @@ pub enum DatabaseError {
 - ✅ Query builder (Task 7)
 - ✅ Transaction support (Task 9)
 - ✅ Admin client (Task 10)
+- ✅ Result handling (Task 11)
 - ✅ Checkpoint 8 - All tests passing
 
-**Ready for Result Handling:**
-- DataClient can execute queries and receive responses
-- Value enum already defined in types.rs
-- QueryResponse structure exists in protocol
-- Need to enhance with Row and QueryResult abstractions
+**Ready for Error Handling Enhancement:**
+- Basic DatabaseError enum exists in error.rs
+- Retry logic exists in connection.rs
+- Need to enhance with comprehensive error types
+- Need to add timeout handling
+- Need to add custom retry policy support
 
 #### What Comes Next
 
-After Task 11, the next tasks are:
-- **Task 12: Implement error handling** - Comprehensive error types and retry policies
-- **Task 13: Implement compression support** - Message compression and feature negotiation
+After Task 12, the next tasks are:
+- **Task 13: Implement compression support** - Message compression with LZ4 and feature negotiation
 - **Task 14: Checkpoint** - Ensure all tests pass
 
 ---
