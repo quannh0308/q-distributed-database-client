@@ -259,49 +259,49 @@ This implementation plan breaks down the client SDK development into discrete, m
 - [x] 8. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 9. Implement transaction support
-  - [ ] 9.1 Implement Transaction struct
+- [x] 9. Implement transaction support
+  - [x] 9.1 Implement Transaction struct
     - Store connection, auth token, transaction ID
     - Track commit status
     - Implement execute() and query() within transaction context
     - _Requirements: 5.1, 5.2_
 
-  - [ ]* 9.2 Write property test for transaction context creation
+  - [x]* 9.2 Write property test for transaction context creation
     - **Property 22: Transaction Context Creation**
     - **Validates: Requirements 5.1**
 
-  - [ ]* 9.3 Write property test for transaction operation association
+  - [x]* 9.3 Write property test for transaction operation association
     - **Property 23: Transaction Operation Association**
     - **Validates: Requirements 5.2**
 
-  - [ ] 9.4 Implement commit() and rollback()
+  - [x] 9.4 Implement commit() and rollback()
     - Send commit/rollback message to server
     - Mark transaction as committed
     - _Requirements: 5.3, 5.4_
 
-  - [ ]* 9.5 Write property test for transaction atomicity
+  - [x]* 9.5 Write property test for transaction atomicity
     - **Property 24: Transaction Atomicity**
     - **Validates: Requirements 5.3**
 
-  - [ ]* 9.6 Write property test for rollback discards changes
+  - [x]* 9.6 Write property test for rollback discards changes
     - **Property 25: Rollback Discards Changes**
     - **Validates: Requirements 5.4**
 
-  - [ ] 9.7 Implement automatic rollback on error
+  - [x] 9.7 Implement automatic rollback on error
     - Catch errors during transaction
     - Automatically rollback before returning error
     - _Requirements: 5.5_
 
-  - [ ]* 9.8 Write property test for automatic rollback on failure
+  - [x]* 9.8 Write property test for automatic rollback on failure
     - **Property 26: Automatic Rollback on Failure**
     - **Validates: Requirements 5.5**
 
-  - [ ] 9.9 Implement Drop trait for automatic rollback
+  - [x] 9.9 Implement Drop trait for automatic rollback
     - Rollback transaction if not committed when dropped
     - Log warning if rollback fails
     - _Requirements: 5.5_
 
-  - [ ] 9.10 Implement begin_transaction() in DataClient
+  - [x] 9.10 Implement begin_transaction() in DataClient
     - Acquire connection from pool
     - Send begin transaction message
     - Return Transaction instance
