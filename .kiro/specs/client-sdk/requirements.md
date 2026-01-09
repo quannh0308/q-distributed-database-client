@@ -32,299 +32,229 @@ The Q-Distributed-Database Client SDK provides a multi-language client library f
 
 ## Current Task Requirements
 
-### Task 12: Implement Error Handling
+### Task 13: Implement Compression Support
 
-This task implements comprehensive error handling capabilities, including enhanced error types, timeout handling, and custom retry policies.
+This task implements message compression using LZ4 and feature negotiation to optimize network bandwidth usage.
 
-#### Error Handling Overview
+#### Compression Overview
 
-The error handling system enables developers to:
-- Receive structured error information with context
-- Handle timeouts gracefully across all network operations
-- Configure custom retry policies for different scenarios
-- Automatically retry transient failures with exponential backoff
-- Distinguish between retryable and non-retryable errors
+The compression system enables:
+- Automatic compression of large messages to reduce network bandwidth
+- Configurable compression threshold to avoid overhead on small messages
+- Feature negotiation between client and server for compression support
+- Transparent compression/decompression for all message types
 
-The error handling components work throughout the SDK to provide a robust and resilient experience when dealing with failures.
+The compression components work at the protocol layer to optimize network communication without affecting higher-level APIs.
 
 #### Key Requirements
 
-**From Requirement 8: Error Handling and Resilience**
+**From Requirement 13: Message Protocol and Serialization**
 
-1. **Automatic Retry with Exponential Backoff (8.1)**
-   - WHEN network errors occur, THE Client_SDK SHALL retry operations with exponential backoff
-   - Retry delays must increase exponentially: delay_n = delay_(n-1) * multiplier
-   - Must respect configured max_retries limit
-   - Must respect configured max_backoff_ms limit
+1. **Message Compression (13.6)**
+   - WHERE compression is enabled, THE Client_SDK SHALL compress messages above the configured threshold
+   - Default compression threshold: 1024 bytes (1KB)
+   - Compression algorithm: LZ4 for fast compression/decompression
+   - Compressed messages must include compression flag in header
 
-2. **Timeout Handling (8.2)**
-   - WHEN timeout errors occur, THE Client_SDK SHALL return timeout errors after configured timeout period
-   - All network operations must have timeout enforcement
-   - Timeout must be configurable per operation
-   - Default timeout: 5000ms
-
-3. **Structured Error Information (8.3)**
-   - WHEN database errors occur, THE Client_SDK SHALL return structured error information with error codes
-   - Error must include error type, message, and context
-   - Error must be serializable for logging and debugging
-   - Error must implement Display and Error traits
-
-4. **Transient Error Retry (8.4)**
-   - WHEN transient errors occur, THE Client_SDK SHALL automatically retry the operation
-   - Transient errors include: ConnectionTimeout, ConnectionLost, NetworkError, TimeoutError
-   - Non-transient errors should not be retried
-
-5. **Retry Exhaustion (8.5)**
-   - IF all retry attempts fail, THEN THE Client_SDK SHALL return the last error encountered
-   - Error must indicate that retries were exhausted
-   - Error must include retry count and last error details
-
-6. **Custom Retry Policies (8.6)**
-   - WHERE custom retry policies are configured, THE Client_SDK SHALL respect the configured retry behavior
-   - Custom policies must support: max_retries, initial_backoff_ms, max_backoff_ms, backoff_multiplier
-   - Custom policies must be configurable per client instance
+2. **Feature Negotiation (13.7)**
+   - WHEN protocol features are negotiated, THE Client_SDK SHALL support compression and heartbeat features
+   - Feature negotiation must occur during connection establishment
+   - Client must send supported features to server
+   - Server responds with mutually supported features
+   - Connection stores negotiated features for use during communication
 
 #### Implementation Components
 
-**1. Enhanced DatabaseError Enum**
+**1. Compression in MessageCodec**
+
+The MessageCodec will be enhanced to support compression:
 
 ```rust
-pub enum DatabaseError {
-    // Connection Errors
-    ConnectionTimeout { 
-        host: String, 
-        timeout_ms: u64 
-    },
-    ConnectionRefused { 
-        host: String 
-    },
-    ConnectionLost { 
-        node_id: NodeId 
-    },
-    
-    // Authentication Errors
-    AuthenticationFailed { 
-        reason: String 
-    },
-    TokenExpired { 
-        expired_at: Timestamp 
-    },
-    InvalidCredentials,
-    
-    // Query Errors
-    SyntaxError { 
-        sql: String, 
-        position: usize, 
-        message: String 
-    },
-    TableNotFound { 
-        table_name: String 
-    },
-    ColumnNotFound { 
-        column_name: String 
-    },
-    ConstraintViolation { 
-        constraint: String, 
-        details: String 
-    },
-    
-    // Transaction Errors
-    TransactionAborted { 
-        transaction_id: TransactionId, 
-        reason: String 
-    },
-    DeadlockDetected { 
-        transaction_id: TransactionId 
-    },
-    IsolationViolation { 
-        details: String 
-    },
-    
-    // Protocol Errors
-    SerializationError { 
-        message: String 
-    },
-    ChecksumMismatch { 
-        expected: u32, 
-        actual: u32 
-    },
-    MessageTooLarge { 
-        size: usize, 
-        max_size: usize 
-    },
-    ProtocolVersionMismatch { 
-        client_version: u8, 
-        server_version: u8 
-    },
-    
-    // Network Errors
-    NetworkError { 
-        details: String 
-    },
-    TimeoutError { 
-        operation: String, 
-        timeout_ms: u64 
-    },
-    
-    // Result Handling Errors
-    TypeConversionError {
-        from: String,
-        to: &'static str,
-        value: String,
-    },
-    ColumnNotFound {
-        column_name: String,
-    },
-    IndexOutOfBounds {
-        index: usize,
-        max: usize,
-    },
-    
-    // Internal Errors
-    InternalError { 
-        component: String, 
-        details: String 
-    },
+use lz4_flex::{compress_prepend_size, decompress_size_prepended};
+
+pub struct MessageCodec {
+    compression_enabled: bool,
+    compression_threshold: usize,  // Default: 1024 bytes
 }
 
-impl std::fmt::Display for DatabaseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DatabaseError::ConnectionTimeout { host, timeout_ms } => {
-                write!(f, "Connection timeout to {} after {}ms", host, timeout_ms)
-            }
-            DatabaseError::TimeoutError { operation, timeout_ms } => {
-                write!(f, "Operation '{}' timed out after {}ms", operation, timeout_ms)
-            }
-            // ... other variants
+impl MessageCodec {
+    pub fn new(compression_enabled: bool, compression_threshold: usize) -> Self {
+        Self {
+            compression_enabled,
+            compression_threshold,
         }
     }
-}
-
-impl std::error::Error for DatabaseError {}
-```
-
-**2. Timeout Handling**
-
-```rust
-use tokio::time::{timeout, Duration};
-
-pub async fn execute_with_timeout<F, T>(
-    operation: F,
-    timeout_ms: u64,
-    operation_name: &str,
-) -> Result<T>
-where
-    F: Future<Output = Result<T>>,
-{
-    match timeout(Duration::from_millis(timeout_ms), operation).await {
-        Ok(result) => result,
-        Err(_) => Err(DatabaseError::TimeoutError {
-            operation: operation_name.to_string(),
-            timeout_ms,
-        }),
-    }
-}
-```
-
-**3. Enhanced Retry Logic**
-
-```rust
-pub async fn execute_with_retry<F, T>(
-    operation: F,
-    retry_config: &RetryConfig,
-) -> Result<T>
-where
-    F: Fn() -> Future<Output = Result<T>>,
-{
-    let mut retries = 0;
-    let mut delay = Duration::from_millis(retry_config.initial_backoff_ms);
-    let mut last_error = None;
     
-    loop {
-        match operation().await {
-            Ok(result) => return Ok(result),
-            Err(e) if retries < retry_config.max_retries && is_retryable(&e) => {
-                last_error = Some(e);
-                retries += 1;
-                tokio::time::sleep(delay).await;
-                delay = std::cmp::min(
-                    Duration::from_millis(
-                        (delay.as_millis() as f64 * retry_config.backoff_multiplier) as u64
-                    ),
-                    Duration::from_millis(retry_config.max_backoff_ms)
-                );
-            }
-            Err(e) => {
-                // Return last error if retries exhausted, otherwise return current error
-                return Err(last_error.unwrap_or(e));
-            }
+    pub fn encode(&self, message: &Message) -> Result<Vec<u8>> {
+        // Serialize message with bincode
+        let serialized = bincode::serialize(message)
+            .map_err(|e| DatabaseError::SerializationError {
+                message: e.to_string(),
+            })?;
+        
+        // Compress if enabled and above threshold
+        if self.compression_enabled && serialized.len() > self.compression_threshold {
+            let compressed = compress_prepend_size(&serialized);
+            Ok(compressed)
+        } else {
+            Ok(serialized)
         }
     }
-}
-
-pub fn is_retryable(error: &DatabaseError) -> bool {
-    matches!(error,
-        DatabaseError::ConnectionTimeout { .. } |
-        DatabaseError::ConnectionLost { .. } |
-        DatabaseError::NetworkError { .. } |
-        DatabaseError::TimeoutError { .. }
-    )
+    
+    pub fn decode(&self, data: &[u8]) -> Result<Message> {
+        // Try to decompress if compression is enabled
+        let decompressed = if self.compression_enabled {
+            match decompress_size_prepended(data) {
+                Ok(d) => d,
+                Err(_) => data.to_vec(), // Not compressed, use as-is
+            }
+        } else {
+            data.to_vec()
+        };
+        
+        // Deserialize message
+        bincode::deserialize(&decompressed)
+            .map_err(|e| DatabaseError::SerializationError {
+                message: e.to_string(),
+            })
+    }
 }
 ```
 
-**4. Custom Retry Policies**
+**2. Feature Negotiation**
+
+Feature negotiation occurs during connection establishment:
 
 ```rust
-#[derive(Debug, Clone)]
-pub struct RetryConfig {
-    pub max_retries: u32,             // Default: 3
-    pub initial_backoff_ms: u64,      // Default: 100
-    pub max_backoff_ms: u64,          // Default: 5000
-    pub backoff_multiplier: f64,      // Default: 2.0
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeatureNegotiation {
+    pub supported_features: Vec<Feature>,
 }
 
-impl Default for RetryConfig {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Feature {
+    Compression,
+    Heartbeat,
+    Streaming,
+}
+
+impl Connection {
+    pub async fn negotiate_features(&mut self, client_features: Vec<Feature>) -> Result<Vec<Feature>> {
+        // Send feature negotiation request
+        let request = Message {
+            message_type: MessageType::FeatureNegotiation,
+            sender: self.node_id,
+            recipient: None,
+            sequence_number: self.next_sequence_number(),
+            timestamp: Utc::now(),
+            payload: bincode::serialize(&FeatureNegotiation {
+                supported_features: client_features.clone(),
+            })?,
+            checksum: 0, // Will be calculated
+        };
+        
+        self.send_message(request).await?;
+        
+        // Receive server's supported features
+        let response = self.receive_message().await?;
+        let server_features: FeatureNegotiation = bincode::deserialize(&response.payload)?;
+        
+        // Calculate intersection of features
+        let negotiated = client_features
+            .into_iter()
+            .filter(|f| server_features.supported_features.contains(f))
+            .collect();
+        
+        Ok(negotiated)
+    }
+}
+```
+
+**3. Connection with Negotiated Features**
+
+The Connection struct will store negotiated features:
+
+```rust
+pub struct Connection {
+    socket: TcpStream,
+    node_id: NodeId,
+    codec: MessageCodec,
+    sequence_number: AtomicU64,
+    negotiated_features: Vec<Feature>,
+}
+
+impl Connection {
+    pub async fn connect(
+        host: &str,
+        config: &ConnectionConfig,
+    ) -> Result<Self> {
+        // Establish TCP connection
+        let socket = TcpStream::connect(host).await?;
+        
+        // Create codec with compression settings
+        let codec = MessageCodec::new(
+            config.compression_enabled,
+            config.compression_threshold,
+        );
+        
+        let mut conn = Self {
+            socket,
+            node_id: NodeId::new(),
+            codec,
+            sequence_number: AtomicU64::new(0),
+            negotiated_features: Vec::new(),
+        };
+        
+        // Negotiate features
+        let client_features = vec![Feature::Compression, Feature::Heartbeat];
+        let negotiated = conn.negotiate_features(client_features).await?;
+        conn.negotiated_features = negotiated;
+        
+        // Update codec based on negotiated features
+        if !conn.negotiated_features.contains(&Feature::Compression) {
+            conn.codec.compression_enabled = false;
+        }
+        
+        Ok(conn)
+    }
+    
+    pub fn has_feature(&self, feature: &Feature) -> bool {
+        self.negotiated_features.contains(feature)
+    }
+}
+```
+
+**4. Configuration Updates**
+
+Update ConnectionConfig to include compression settings:
+
+```rust
+pub struct ConnectionConfig {
+    pub hosts: Vec<String>,
+    pub username: String,
+    pub password: Option<String>,
+    pub certificate: Option<Certificate>,
+    pub enable_tls: bool,
+    pub timeout_ms: u64,
+    pub pool_config: PoolConfig,
+    pub retry_config: RetryConfig,
+    pub compression_enabled: bool,      // Default: true
+    pub compression_threshold: usize,   // Default: 1024 bytes
+}
+
+impl Default for ConnectionConfig {
     fn default() -> Self {
         Self {
-            max_retries: 3,
-            initial_backoff_ms: 100,
-            max_backoff_ms: 5000,
-            backoff_multiplier: 2.0,
-        }
-    }
-}
-
-impl RetryConfig {
-    pub fn new(
-        max_retries: u32,
-        initial_backoff_ms: u64,
-        max_backoff_ms: u64,
-        backoff_multiplier: f64,
-    ) -> Self {
-        Self {
-            max_retries,
-            initial_backoff_ms,
-            max_backoff_ms,
-            backoff_multiplier,
-        }
-    }
-    
-    pub fn no_retry() -> Self {
-        Self {
-            max_retries: 0,
-            initial_backoff_ms: 0,
-            max_backoff_ms: 0,
-            backoff_multiplier: 1.0,
-        }
-    }
-    
-    pub fn aggressive() -> Self {
-        Self {
-            max_retries: 5,
-            initial_backoff_ms: 50,
-            max_backoff_ms: 2000,
-            backoff_multiplier: 1.5,
+            hosts: vec!["localhost:7000".to_string()],
+            username: String::new(),
+            password: None,
+            certificate: None,
+            enable_tls: false,
+            timeout_ms: 5000,
+            pool_config: PoolConfig::default(),
+            retry_config: RetryConfig::default(),
+            compression_enabled: true,
+            compression_threshold: 1024,
         }
     }
 }
@@ -332,14 +262,13 @@ impl RetryConfig {
 
 #### Success Criteria
 
-- ✅ DatabaseError enum enhanced with all error variants
-- ✅ Display and Error traits implemented for DatabaseError
-- ✅ Timeout handling implemented for all network operations
-- ✅ Custom retry policies configurable
-- ✅ Retry logic respects custom policies
-- ✅ Transient errors automatically retried
-- ✅ Non-retryable errors returned immediately
-- ✅ Property tests for error handling passing
+- ✅ MessageCodec supports LZ4 compression
+- ✅ Compression applied to messages above threshold
+- ✅ Compression threshold configurable
+- ✅ Feature negotiation implemented
+- ✅ Connection stores negotiated features
+- ✅ Compression disabled if not negotiated
+- ✅ Property tests for compression passing
 - ✅ All tests passing
 
 #### What Has Been Implemented So Far
@@ -353,20 +282,20 @@ impl RetryConfig {
 - ✅ Transaction support (Task 9)
 - ✅ Admin client (Task 10)
 - ✅ Result handling (Task 11)
-- ✅ Checkpoint 8 - All tests passing
+- ✅ Error handling (Task 12)
 
-**Ready for Error Handling Enhancement:**
-- Basic DatabaseError enum exists in error.rs
-- Retry logic exists in connection.rs
-- Need to enhance with comprehensive error types
-- Need to add timeout handling
-- Need to add custom retry policy support
+**Ready for Compression Enhancement:**
+- MessageCodec exists in protocol.rs
+- Connection struct exists in connection.rs
+- Need to add LZ4 compression support
+- Need to implement feature negotiation
+- Need to update ConnectionConfig
 
 #### What Comes Next
 
-After Task 12, the next tasks are:
-- **Task 13: Implement compression support** - Message compression with LZ4 and feature negotiation
+After Task 13, the next tasks are:
 - **Task 14: Checkpoint** - Ensure all tests pass
+- **Task 15: Implement main Client interface** - Wire all components together
 
 ---
 
