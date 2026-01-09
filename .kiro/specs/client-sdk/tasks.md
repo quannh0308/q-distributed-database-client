@@ -166,15 +166,18 @@ This is an automated 2-task cycle designed to minimize token consumption by load
 
 - [ ] 2. Complete and Setup Next Task: Mark Task 12 complete and setup Task 13 context
   - **Automation Steps**:
-    1. Update FOUNDATION/tasks.md: Change `- [ ] 12` to `- [x] 12`
-    2. Create git commit documenting Task 12 completion
-    3. Identify Next Task: Task 13 from FOUNDATION/tasks.md
-    4. Extract Context: Get Task 13 requirements from FOUNDATION files
-    5. Update Active Files:
+    1. **Commit ALL Task 12 implementation code**: Run `git add -A` and commit all implementation changes from Task 1
+    2. Update FOUNDATION/tasks.md: Change `- [ ] 12` to `- [x] 12`
+    3. Create git commit documenting Task 12 completion in FOUNDATION
+    4. Identify Next Task: Task 13 from FOUNDATION/tasks.md
+    5. Extract Context: Get Task 13 requirements from FOUNDATION files
+    6. Update Active Files:
        - Update requirements.md with Task 13 context
        - Update design.md with Task 13 context
        - Update this tasks.md with new 2-task cycle for Task 13
+    7. Create final git commit with all spec updates
   - **Expected Result**: Complete automation setup for Task 13 execution with minimal token consumption
+  - **CRITICAL**: Step 1 MUST commit all implementation code before proceeding with spec updates
 
 ---
 
