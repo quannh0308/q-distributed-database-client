@@ -7,7 +7,8 @@ use crate::auth::AuthenticationManager;
 use crate::connection::{ConnectionManager, PooledConnection};
 use crate::error::DatabaseError;
 use crate::protocol::{Message, MessageType};
-use crate::types::{ColumnMetadata, StatementId, Value};
+use crate::result::{ColumnMetadata, QueryResult, Row};
+use crate::types::{StatementId, Value};
 use crate::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -21,57 +22,6 @@ pub struct ExecuteResult {
     pub rows_affected: u64,
     /// Last insert ID (for INSERT operations)
     pub last_insert_id: Option<i64>,
-}
-
-/// Result of a query operation (SELECT)
-#[derive(Debug, Clone)]
-pub struct QueryResult {
-    /// Column metadata
-    pub columns: Vec<ColumnMetadata>,
-    /// Result rows
-    pub rows: Vec<Row>,
-}
-
-/// A single row in a query result
-#[derive(Debug, Clone)]
-pub struct Row {
-    /// Column values
-    values: Vec<Value>,
-}
-
-impl Row {
-    /// Creates a new row with the given values
-    pub fn new(values: Vec<Value>) -> Self {
-        Self { values }
-    }
-
-    /// Gets a value by column index
-    pub fn get(&self, index: usize) -> Option<&Value> {
-        self.values.get(index)
-    }
-
-    /// Gets a value by column name
-    pub fn get_by_name(&self, name: &str, columns: &[ColumnMetadata]) -> Option<&Value> {
-        columns
-            .iter()
-            .position(|col| col.name == name)
-            .and_then(|idx| self.values.get(idx))
-    }
-
-    /// Returns the number of columns in this row
-    pub fn len(&self) -> usize {
-        self.values.len()
-    }
-
-    /// Returns true if the row has no columns
-    pub fn is_empty(&self) -> bool {
-        self.values.is_empty()
-    }
-
-    /// Returns an iterator over the values
-    pub fn values(&self) -> &[Value] {
-        &self.values
-    }
 }
 
 /// Prepared statement
@@ -90,17 +40,17 @@ pub struct ResultStream {
     /// Connection
     connection: PooledConnection,
     /// Column metadata
-    columns: Option<Vec<ColumnMetadata>>,
+    columns: Arc<Vec<ColumnMetadata>>,
     /// Whether the stream is finished
     finished: bool,
 }
 
 impl ResultStream {
     /// Creates a new result stream
-    fn new(connection: PooledConnection) -> Self {
+    fn new(connection: PooledConnection, columns: Arc<Vec<ColumnMetadata>>) -> Self {
         Self {
             connection,
-            columns: None,
+            columns,
             finished: false,
         }
     }
@@ -123,7 +73,7 @@ impl ResultStream {
                             message: format!("Failed to deserialize row data: {}", e),
                         }
                     })?;
-                Ok(Some(Row::new(values)))
+                Ok(Some(Row::new(self.columns.clone(), values)))
             }
             MessageType::Ack => {
                 // End of stream
@@ -148,9 +98,9 @@ impl ResultStream {
         }
     }
 
-    /// Returns the column metadata (if available)
-    pub fn columns(&self) -> Option<&[ColumnMetadata]> {
-        self.columns.as_deref()
+    /// Returns the column metadata
+    pub fn columns(&self) -> &[ColumnMetadata] {
+        &self.columns
     }
 }
 
@@ -354,11 +304,8 @@ impl DataClient {
         // Return connection to pool
         self.connection_manager.return_connection(conn).await;
 
-        // Convert to QueryResult
-        Ok(QueryResult {
-            columns: query_response.columns,
-            rows: query_response.rows.into_iter().map(Row::new).collect(),
-        })
+        // Convert to QueryResult using from_raw
+        Ok(QueryResult::from_raw(query_response.columns, query_response.rows))
     }
 
     /// Executes a streaming query for large result sets
@@ -387,7 +334,7 @@ impl DataClient {
         let node_id = conn.node_id();
         let timestamp = chrono::Utc::now().timestamp_millis();
 
-        // Send request (don't wait for full response)
+        // Send request
         conn.connection_mut()
             .send_message(Message::new(
                 0,
@@ -399,8 +346,26 @@ impl DataClient {
             ))
             .await?;
 
-        // Return stream
-        Ok(ResultStream::new(conn))
+        // Receive first response with column metadata
+        let response = conn.connection_mut().receive_message().await?;
+        let query_response: QueryResponse =
+            bincode::deserialize(&response.payload).map_err(|e| {
+                DatabaseError::SerializationError {
+                    message: format!("Failed to deserialize query response: {}", e),
+                }
+            })?;
+
+        // Check for errors
+        if let Some(error) = query_response.error {
+            return Err(DatabaseError::InternalError {
+                component: "DataClient".to_string(),
+                details: error,
+            });
+        }
+
+        // Create stream with column metadata
+        let columns = Arc::new(query_response.columns);
+        Ok(ResultStream::new(conn, columns))
     }
 
     /// Prepares a statement for reuse
@@ -628,69 +593,6 @@ mod tests {
         };
         assert_eq!(result.rows_affected, 5);
         assert_eq!(result.last_insert_id, Some(42));
-    }
-
-    #[test]
-    fn test_row_creation() {
-        let values = vec![Value::Int(1), Value::String("test".to_string())];
-        let row = Row::new(values.clone());
-        assert_eq!(row.len(), 2);
-        assert!(!row.is_empty());
-        assert_eq!(row.get(0), Some(&Value::Int(1)));
-        assert_eq!(row.get(1), Some(&Value::String("test".to_string())));
-    }
-
-    #[test]
-    fn test_row_get_by_name() {
-        let columns = vec![
-            ColumnMetadata {
-                name: "id".to_string(),
-                data_type: "INTEGER".to_string(),
-                nullable: false,
-            },
-            ColumnMetadata {
-                name: "name".to_string(),
-                data_type: "TEXT".to_string(),
-                nullable: true,
-            },
-        ];
-
-        let values = vec![Value::Int(1), Value::String("test".to_string())];
-        let row = Row::new(values);
-
-        assert_eq!(row.get_by_name("id", &columns), Some(&Value::Int(1)));
-        assert_eq!(
-            row.get_by_name("name", &columns),
-            Some(&Value::String("test".to_string()))
-        );
-        assert_eq!(row.get_by_name("nonexistent", &columns), None);
-    }
-
-    #[test]
-    fn test_row_empty() {
-        let row = Row::new(vec![]);
-        assert_eq!(row.len(), 0);
-        assert!(row.is_empty());
-        assert_eq!(row.get(0), None);
-    }
-
-    #[test]
-    fn test_query_result_creation() {
-        let columns = vec![ColumnMetadata {
-            name: "id".to_string(),
-            data_type: "INTEGER".to_string(),
-            nullable: false,
-        }];
-
-        let rows = vec![Row::new(vec![Value::Int(1)]), Row::new(vec![Value::Int(2)])];
-
-        let result = QueryResult {
-            columns: columns.clone(),
-            rows: rows.clone(),
-        };
-
-        assert_eq!(result.columns.len(), 1);
-        assert_eq!(result.rows.len(), 2);
     }
 
     #[test]

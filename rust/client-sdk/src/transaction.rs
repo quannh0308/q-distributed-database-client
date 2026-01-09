@@ -5,12 +5,15 @@
 
 use crate::auth::AuthToken;
 use crate::connection::PooledConnection;
-use crate::data_client::{ExecuteResult, QueryResult, Row};
 use crate::error::DatabaseError;
 use crate::protocol::MessageType;
-use crate::types::{ColumnMetadata, TransactionId, Value};
+use crate::result::{ColumnMetadata, QueryResult, Row};
+use crate::types::{TransactionId, Value};
 use crate::Result;
 use serde::{Deserialize, Serialize};
+
+// Re-export ExecuteResult from data_client
+use crate::data_client::ExecuteResult;
 
 /// Isolation level for transactions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -272,10 +275,7 @@ impl Transaction {
             });
         }
 
-        Ok(QueryResult {
-            columns: query_response.columns,
-            rows: query_response.rows.into_iter().map(Row::new).collect(),
-        })
+        Ok(QueryResult::from_raw(query_response.columns, query_response.rows))
     }
 
     /// Commits the transaction, persisting all changes

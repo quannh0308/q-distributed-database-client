@@ -99,6 +99,93 @@ impl Value {
             _ => None,
         }
     }
+
+    /// Returns the type name of this value
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Value::Null => "Null",
+            Value::Bool(_) => "Bool",
+            Value::Int(_) => "Int",
+            Value::Float(_) => "Float",
+            Value::String(_) => "String",
+            Value::Bytes(_) => "Bytes",
+            Value::Timestamp(_) => "Timestamp",
+        }
+    }
+
+    /// Converts the value to i64, returning an error if conversion fails
+    pub fn as_i64(&self) -> crate::Result<i64> {
+        match self {
+            Value::Int(i) => Ok(*i),
+            _ => Err(crate::error::DatabaseError::TypeConversionError {
+                from: self.type_name().to_string(),
+                to: "i64",
+                value: format!("{:?}", self),
+            }),
+        }
+    }
+
+    /// Converts the value to f64, returning an error if conversion fails
+    /// Supports conversion from Int to f64
+    pub fn as_f64(&self) -> crate::Result<f64> {
+        match self {
+            Value::Float(f) => Ok(*f),
+            Value::Int(i) => Ok(*i as f64),
+            _ => Err(crate::error::DatabaseError::TypeConversionError {
+                from: self.type_name().to_string(),
+                to: "f64",
+                value: format!("{:?}", self),
+            }),
+        }
+    }
+
+    /// Converts the value to String, returning an error if conversion fails
+    pub fn as_string(&self) -> crate::Result<String> {
+        match self {
+            Value::String(s) => Ok(s.clone()),
+            _ => Err(crate::error::DatabaseError::TypeConversionError {
+                from: self.type_name().to_string(),
+                to: "String",
+                value: format!("{:?}", self),
+            }),
+        }
+    }
+
+    /// Converts the value to bool, returning an error if conversion fails
+    pub fn as_bool_result(&self) -> crate::Result<bool> {
+        match self {
+            Value::Bool(b) => Ok(*b),
+            _ => Err(crate::error::DatabaseError::TypeConversionError {
+                from: self.type_name().to_string(),
+                to: "bool",
+                value: format!("{:?}", self),
+            }),
+        }
+    }
+
+    /// Converts the value to Vec<u8>, returning an error if conversion fails
+    pub fn as_bytes_vec(&self) -> crate::Result<Vec<u8>> {
+        match self {
+            Value::Bytes(b) => Ok(b.clone()),
+            _ => Err(crate::error::DatabaseError::TypeConversionError {
+                from: self.type_name().to_string(),
+                to: "Vec<u8>",
+                value: format!("{:?}", self),
+            }),
+        }
+    }
+
+    /// Converts the value to DateTime<Utc>, returning an error if conversion fails
+    pub fn as_timestamp_result(&self) -> crate::Result<DateTime<Utc>> {
+        match self {
+            Value::Timestamp(ts) => Ok(*ts),
+            _ => Err(crate::error::DatabaseError::TypeConversionError {
+                from: self.type_name().to_string(),
+                to: "DateTime<Utc>",
+                value: format!("{:?}", self),
+            }),
+        }
+    }
 }
 
 impl From<bool> for Value {
@@ -352,17 +439,6 @@ pub struct NodeInfo {
     pub last_check: Timestamp,
     /// Number of consecutive failures
     pub consecutive_failures: u32,
-}
-
-/// Column metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ColumnMetadata {
-    /// Column name
-    pub name: String,
-    /// Column data type
-    pub data_type: String,
-    /// Whether the column is nullable
-    pub nullable: bool,
 }
 
 // ============================================================================
@@ -750,19 +826,5 @@ mod tests {
         assert_eq!(node.address, "localhost:7000");
         assert_eq!(node.health_status, NodeHealthStatus::Healthy);
         assert_eq!(node.consecutive_failures, 0);
-    }
-
-    // ColumnMetadata Tests
-    #[test]
-    fn test_column_metadata_creation() {
-        let col = ColumnMetadata {
-            name: "id".to_string(),
-            data_type: "INTEGER".to_string(),
-            nullable: false,
-        };
-
-        assert_eq!(col.name, "id");
-        assert_eq!(col.data_type, "INTEGER");
-        assert!(!col.nullable);
     }
 }

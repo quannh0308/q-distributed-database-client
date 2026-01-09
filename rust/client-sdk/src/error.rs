@@ -221,6 +221,27 @@ pub enum DatabaseError {
     /// Cannot remove last admin
     #[error("Cannot remove the last admin user")]
     CannotRemoveLastAdmin,
+
+    // Result Handling Errors
+    /// Type conversion error
+    #[error("Type conversion error: cannot convert {from} to {to}, value: {value}")]
+    TypeConversionError {
+        /// Source type
+        from: String,
+        /// Target type
+        to: &'static str,
+        /// Value that failed conversion
+        value: String,
+    },
+
+    /// Index out of bounds
+    #[error("Index out of bounds: {index} (max: {max})")]
+    IndexOutOfBounds {
+        /// The index that was out of bounds
+        index: usize,
+        /// The maximum valid index
+        max: usize,
+    },
 }
 
 impl DatabaseError {
