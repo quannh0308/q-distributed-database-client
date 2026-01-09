@@ -76,7 +76,7 @@ impl ProtocolType {
 }
 
 /// Node health information
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeHealth {
     /// Node identifier
     pub node_id: NodeId,

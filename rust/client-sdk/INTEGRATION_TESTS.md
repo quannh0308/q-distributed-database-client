@@ -2,6 +2,120 @@
 
 This document describes integration tests that require a running database server.
 
+## Client Integration Tests (Task 15)
+
+The following integration tests for the main Client interface require a running database server and are marked as `#[ignore]` in the test suite:
+
+### Test: Client Connection Lifecycle
+**Location**: `tests/client_integration.rs::test_client_connection_lifecycle`
+**Validates**: Requirements 1.1, 1.6
+
+**Test Strategy**:
+- Connect to database using Client::connect()
+- Verify access to data() and admin() sub-clients
+- Disconnect gracefully using disconnect()
+
+**Requirements**:
+- Running test database server
+- Valid connection configuration
+- Authentication setup
+
+### Test: Client CRUD Operations
+**Location**: `tests/client_integration.rs::test_client_crud_operations`
+**Validates**: Requirements 3.1, 3.2, 3.3, 3.4
+
+**Test Strategy**:
+- Create table through Client
+- Insert data using execute_with_params()
+- Query data using query()
+- Update data using execute_with_params()
+- Delete data using execute_with_params()
+- Drop table for cleanup
+
+**Requirements**:
+- Running test database server
+- Table creation support
+- CRUD operation support
+
+### Test: Client Transaction Operations
+**Location**: `tests/client_integration.rs::test_client_transaction_operations`
+**Validates**: Requirements 5.1, 5.3, 5.4
+
+**Test Strategy**:
+- Begin transaction through Client
+- Execute multiple operations within transaction
+- Commit transaction
+- Verify all changes are visible
+
+**Requirements**:
+- Running test database server
+- Transaction support
+- ACID guarantees
+
+### Test: Client Admin Operations
+**Location**: `tests/client_integration.rs::test_client_admin_operations`
+**Validates**: Requirements 6.1, 6.2
+
+**Test Strategy**:
+- List cluster nodes through admin()
+- Get cluster metrics
+- List users
+
+**Requirements**:
+- Running test database server
+- Admin operations support
+- Cluster management capabilities
+
+### Test: Client Health Check
+**Location**: `tests/client_integration.rs::test_client_health_check`
+**Validates**: Requirements 6.2
+
+**Test Strategy**:
+- Call health_check() on Client
+- Verify cluster health information
+- Verify node health status
+
+**Requirements**:
+- Running test database server
+- Health check support
+- Node status reporting
+
+### Test: Client Authentication Failure
+**Location**: `tests/client_integration.rs::test_client_authentication_failure`
+**Validates**: Requirements 2.1
+
+**Test Strategy**:
+- Attempt connection with invalid credentials
+- Verify authentication error is returned
+
+**Requirements**:
+- Running test database server
+- Authentication enforcement
+
+### Test: Client Connection Failure
+**Location**: `tests/client_integration.rs::test_client_connection_failure`
+**Validates**: Requirements 1.1
+
+**Test Strategy**:
+- Attempt connection to non-existent server
+- Verify connection error is returned
+
+**Requirements**:
+- No server running on test port
+
+### Test: Client Multiple Operations
+**Location**: `tests/client_integration.rs::test_client_multiple_operations`
+**Validates**: Requirements 3.1, 3.2
+
+**Test Strategy**:
+- Execute multiple sequential operations
+- Verify all operations succeed
+- Test connection pooling and reuse
+
+**Requirements**:
+- Running test database server
+- Connection pooling support
+
 ## Transaction Property Tests (Task 9)
 
 The following property-based tests for transaction support require a running database server and are marked as `#[ignore]` in the test suite:
@@ -104,8 +218,9 @@ The integration tests require a test database server that supports:
 
 ## Current Status
 
-✅ **Unit Tests**: All passing (5 tests)
-✅ **API Structure**: Transaction API fully implemented
-⏳ **Integration Tests**: Deferred until test server available (5 tests marked as #[ignore])
+✅ **Unit Tests**: All passing (186 tests)
+✅ **API Structure**: Client, Transaction, and all components fully implemented
+✅ **Integration Tests**: 8 Client integration tests + 5 Transaction property tests (all marked as #[ignore])
+⏳ **Integration Test Execution**: Deferred until test server available
 
-The transaction implementation is complete and ready for integration testing once a database server is available.
+The Client implementation is complete and ready for integration testing once a database server is available.

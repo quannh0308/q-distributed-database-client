@@ -44,7 +44,7 @@ pub mod admin_client;
 
 pub use admin_client::AdminClient;
 pub use auth::{AuthToken, AuthenticationManager, Certificate, Credentials};
-pub use client::Client;
+pub use client::{Client, ClusterHealth};
 pub use connection::{execute_with_timeout, Connection, ConnectionManager, ConnectionPool, NodeHealth, PooledConnection, ProtocolType};
 pub use data_client::{BatchContext, DataClient, ExecuteResult, PreparedStatement, ResultStream};
 pub use error::DatabaseError;

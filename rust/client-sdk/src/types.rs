@@ -289,6 +289,32 @@ impl ConnectionConfig {
         }
     }
 
+    /// Validates the configuration
+    pub fn validate(&self) -> crate::Result<()> {
+        use crate::error::DatabaseError;
+
+        if self.hosts.is_empty() {
+            return Err(DatabaseError::InternalError {
+                component: "ConnectionConfig".to_string(),
+                details: "At least one host must be specified".to_string(),
+            });
+        }
+
+        if self.username.is_empty() {
+            return Err(DatabaseError::AuthenticationFailed {
+                reason: "Username is required".to_string(),
+            });
+        }
+
+        if self.password.is_none() && self.certificate.is_none() {
+            return Err(DatabaseError::AuthenticationFailed {
+                reason: "Either password or certificate must be provided".to_string(),
+            });
+        }
+
+        Ok(())
+    }
+
     /// Sets the hosts
     pub fn with_hosts(mut self, hosts: Vec<String>) -> Self {
         self.hosts = hosts;
