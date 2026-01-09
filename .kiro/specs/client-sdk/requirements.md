@@ -18,6 +18,7 @@ The Q-Distributed-Database Client SDK provides a multi-language client library f
 - **Error Handling**: Comprehensive error types with automatic retry and exponential backoff
 - **Message Protocol**: Bincode serialization with CRC32 checksums, length-prefixed framing
 - **Multi-Language**: Rust, Python, TypeScript implementations
+- **Monitoring**: Metrics collection, logging, and distributed tracing
 
 ## Technical Specifications
 
@@ -32,21 +33,21 @@ The Q-Distributed-Database Client SDK provides a multi-language client library f
 
 ## Current Task Requirements
 
-### Task 15: Implement Main Client Interface
+### Task 16: Add Monitoring and Observability
 
-This task wires all previously implemented components together into a unified Client interface that serves as the main entry point for applications.
+This task adds comprehensive monitoring, logging, and tracing capabilities to the SDK to enable debugging, performance analysis, and operational visibility.
 
 #### Task Overview
 
-The Client struct is the primary interface that applications use to interact with the q-distributed-database. It:
-- Initializes and manages all sub-components (ConnectionManager, AuthenticationManager, DataClient, AdminClient)
-- Provides a clean, unified API for all database operations
-- Handles graceful connection lifecycle (connect/disconnect)
-- Exposes health checking capabilities
+Monitoring and observability are critical for production systems. This task implements:
+- **Metrics Collection**: Track operation latency, success/error rates, connection pool statistics
+- **Logging**: Structured logging for connection lifecycle, errors, and important events
+- **Distributed Tracing**: Integration with OpenTelemetry for request tracing across services
 
-#### What Has Been Implemented (Tasks 1-14)
+#### What Has Been Implemented (Tasks 1-15)
 
-All core components are complete and tested:
+All core functionality is complete:
+- ✅ **Client Interface**: Main entry point with all sub-components (Task 15)
 - ✅ **ConnectionManager**: Connection pooling, health checking, failover (Task 3)
 - ✅ **AuthenticationManager**: Token management, auto re-authentication (Task 5)
 - ✅ **DataClient**: CRUD operations, query execution, transactions (Tasks 6-7, 9)
@@ -55,63 +56,75 @@ All core components are complete and tested:
 - ✅ **Error Handling**: Comprehensive error types, retry logic (Task 12)
 - ✅ **Result Handling**: Type conversion, streaming (Task 11)
 
-#### Requirements for Task 15
+#### Requirements for Task 16
 
-**Requirement 1.1: Connection Establishment**
-- WHEN initializing the client, THE Client_SDK SHALL establish TCP connections to one or more q-distributed-database nodes on port 7000 (default)
+**Requirement 11.1: Metrics Collection**
+- WHEN operations execute, THE Client_SDK SHALL emit metrics for operation latency, success rate, and error rate
 
-**Requirement 1.6: Graceful Shutdown**
-- WHEN closing the client, THE Client_SDK SHALL gracefully close all active connections
+**Requirement 11.2: Error Logging**
+- WHEN errors occur, THE Client_SDK SHALL log detailed error information with context
 
-**Requirement 6.2: Node Health Checking**
-- WHEN checking node health, THE Admin_Client SHALL return health status for each node including per-core task queue metrics
+**Requirement 11.3: Connection Lifecycle Logging**
+- WHEN connections change state, THE Client_SDK SHALL log connection lifecycle events
 
-#### Client Interface Structure
+**Requirement 11.4: Distributed Tracing**
+- WHERE distributed tracing is enabled, THE Client_SDK SHALL propagate trace context to the q-distributed-database server
 
-The Client struct should:
+**Requirement 11.5: Metrics API**
+- WHEN retrieving metrics, THE Client_SDK SHALL provide an API to access current metrics and statistics
 
-1. **Store all sub-components**:
-   - `ConnectionManager` - manages connection pool and node health
-   - `AuthenticationManager` - handles authentication and token management
-   - `DataClient` - provides CRUD operations and query execution
-   - `AdminClient` - provides cluster and user management
+**Requirement 11.6: Log Level Configuration**
+- IF logging is configured, THEN THE Client_SDK SHALL respect configured log levels and destinations
 
-2. **Provide initialization**:
-   - `connect(config)` - Initialize all components and establish connections
-   - Validate configuration
-   - Authenticate with credentials
-   - Verify cluster connectivity
+#### Monitoring Components
 
-3. **Provide access methods**:
-   - `data()` - Returns reference to DataClient for CRUD operations
-   - `admin()` - Returns reference to AdminClient for admin operations
+The monitoring system should include:
 
-4. **Provide lifecycle management**:
-   - `disconnect()` - Gracefully shutdown all connections
-   - `health_check()` - Query cluster health from all nodes
+1. **Metrics Collector**:
+   - Operation latency (min, max, avg, p50, p95, p99)
+   - Success rate and error rate
+   - Connection pool statistics (active, idle, total)
+   - Query execution counts
+   - Transaction commit/rollback counts
+   - Authentication success/failure counts
+
+2. **Logger**:
+   - Structured logging with context fields
+   - Log levels: TRACE, DEBUG, INFO, WARN, ERROR
+   - Connection lifecycle events (connect, disconnect, failover)
+   - Error logging with stack traces
+   - Query execution logging (optional, for debugging)
+
+3. **Tracer**:
+   - OpenTelemetry integration
+   - Span creation for operations
+   - Trace context propagation to server
+   - Distributed trace correlation
 
 #### Integration Points
 
-The Client must properly integrate:
-- **ConnectionManager** for connection pooling and failover
-- **AuthenticationManager** for authentication before any operations
-- **DataClient** for data operations (already uses ConnectionManager and AuthenticationManager)
-- **AdminClient** for admin operations (already uses ConnectionManager and AuthenticationManager)
+Monitoring should be integrated into:
+- **Client**: Expose `get_metrics()` method
+- **ConnectionManager**: Log connection events, track pool metrics
+- **DataClient**: Track query/execute latency and counts
+- **AdminClient**: Track admin operation metrics
+- **AuthenticationManager**: Track auth success/failure
+- **All operations**: Create spans for distributed tracing
 
 #### Success Criteria
 
-- ✅ Client can be initialized with valid configuration
-- ✅ Client establishes connections to database nodes
-- ✅ Client authenticates successfully
-- ✅ Client provides access to data() and admin() operations
-- ✅ Client can check cluster health
-- ✅ Client can disconnect gracefully
-- ✅ All resources are properly released on disconnect
+- ✅ Metrics are collected for all operations
+- ✅ Metrics can be retrieved via `get_metrics()` API
+- ✅ Connection lifecycle events are logged
+- ✅ Errors are logged with full context
+- ✅ Log levels can be configured
+- ✅ OpenTelemetry spans are created for operations
+- ✅ Trace context is propagated to server
+- ✅ Monitoring has minimal performance overhead
 
 #### What Comes Next
 
-After Task 15, the remaining tasks are:
-- **Task 16: Add monitoring and observability** - Implement metrics, logging, and tracing
+After Task 16, the remaining tasks are:
 - **Task 17: Create documentation and examples** - Write API docs and example applications
 - **Task 18: Final checkpoint** - Final validation before release
 
