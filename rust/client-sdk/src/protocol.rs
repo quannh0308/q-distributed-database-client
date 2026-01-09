@@ -4,7 +4,10 @@
 //! CRC32 checksum validation, and length-prefixed framing.
 
 use crate::error::DatabaseError;
-use crate::types::{NodeId, Timestamp};
+use crate::types::{
+    ClusterMetrics, ClusterNodeInfo, NodeHealthMetrics, NodeId, Permission, Role, Timestamp,
+    UserId, UserInfo, UserUpdate,
+};
 use crate::connection::ProtocolType;
 use crc32fast::Hasher;
 use serde::{Deserialize, Serialize};
@@ -35,6 +38,8 @@ pub enum MessageType {
     Replication,
     /// Transaction message
     Transaction,
+    /// Admin message
+    Admin,
 }
 
 /// Message structure
@@ -107,6 +112,7 @@ impl Message {
             MessageType::ClusterLeave => 7u8,
             MessageType::Replication => 8u8,
             MessageType::Transaction => 9u8,
+            MessageType::Admin => 10u8,
         };
         hasher.update(&[type_discriminant]);
         
@@ -326,6 +332,97 @@ impl ProtocolNegotiation {
         // Return highest priority protocol
         common.first().copied()
     }
+}
+
+// ============================================================================
+// Admin Protocol Types
+// ============================================================================
+
+/// Admin request types for cluster and user management
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AdminRequest {
+    // Cluster Management
+    /// List all nodes in the cluster
+    ListNodes,
+    /// Get health metrics for a specific node
+    GetNodeHealth { node_id: NodeId },
+    /// Add a new node to the cluster
+    AddNode { host: String, port: u16 },
+    /// Remove a node from the cluster
+    RemoveNode { node_id: NodeId },
+    /// Trigger partition rebalancing
+    RebalancePartitions,
+    /// Get cluster-wide metrics
+    GetClusterMetrics,
+
+    // User Management
+    /// Create a new user
+    CreateUser {
+        username: String,
+        password: String,
+        roles: Vec<Role>,
+    },
+    /// List all users
+    ListUsers,
+    /// Update a user
+    UpdateUser { user_id: UserId, update: UserUpdate },
+    /// Delete a user
+    DeleteUser { user_id: UserId },
+    /// Grant a permission to a user
+    GrantPermission {
+        user_id: UserId,
+        permission: Permission,
+    },
+    /// Revoke a permission from a user
+    RevokePermission {
+        user_id: UserId,
+        permission: Permission,
+    },
+}
+
+/// Admin response types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AdminResponse {
+    /// List of nodes in the cluster
+    NodeList(Vec<ClusterNodeInfo>),
+    /// Node health metrics
+    NodeHealth(NodeHealthMetrics),
+    /// Node added successfully
+    NodeAdded(NodeId),
+    /// Node removed successfully
+    NodeRemoved,
+    /// Partitions rebalanced successfully
+    PartitionsRebalanced,
+    /// Cluster metrics
+    ClusterMetrics(ClusterMetrics),
+    /// User created successfully
+    UserCreated(UserId),
+    /// List of users
+    UserList(Vec<UserInfo>),
+    /// User updated successfully
+    UserUpdated,
+    /// User deleted successfully
+    UserDeleted,
+    /// Permission granted successfully
+    PermissionGranted,
+    /// Permission revoked successfully
+    PermissionRevoked,
+}
+
+/// Request envelope for all request types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Request {
+    /// Admin request
+    Admin(AdminRequest),
+}
+
+/// Response envelope for all response types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Response {
+    /// Admin response
+    Admin(AdminResponse),
+    /// Error response
+    Error(String),
 }
 
 #[cfg(test)]

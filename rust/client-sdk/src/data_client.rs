@@ -482,6 +482,80 @@ impl DataClient {
         let (sql, params) = builder.build()?;
         self.execute_with_params(&sql, &params).await
     }
+
+    /// Begins a new transaction
+    ///
+    /// Returns a Transaction instance that can be used to execute operations
+    /// atomically. The transaction must be explicitly committed or rolled back.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut txn = client.data().begin_transaction().await?;
+    /// txn.execute("INSERT INTO users (name) VALUES (?)", &[Value::from("Alice")]).await?;
+    /// txn.commit().await?;
+    /// ```
+    pub async fn begin_transaction(&self) -> Result<crate::transaction::Transaction> {
+        use crate::transaction::{IsolationLevel, TransactionRequest, TransactionResponse};
+
+        // 1. Acquire connection from pool
+        let mut connection = self.connection_manager.get_connection().await?;
+
+        // 2. Get valid auth token
+        let auth_token = self.auth_manager.get_valid_token().await?;
+
+        // 3. Generate unique transaction ID (using timestamp + random for uniqueness)
+        let transaction_id = chrono::Utc::now().timestamp_millis() as u64;
+
+        // 4. Send BEGIN TRANSACTION message
+        let request = TransactionRequest::Begin {
+            transaction_id,
+            isolation_level: IsolationLevel::default(),
+        };
+
+        let payload = bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
+            message: format!("Failed to serialize begin transaction request: {}", e),
+        })?;
+
+        let response = connection
+            .connection_mut()
+            .send_request(MessageType::Transaction, payload, 5000)
+            .await?;
+
+        // 5. Verify success
+        let txn_response: TransactionResponse =
+            bincode::deserialize(&response.payload).map_err(|e| {
+                DatabaseError::SerializationError {
+                    message: format!("Failed to deserialize transaction response: {}", e),
+                }
+            })?;
+
+        match txn_response {
+            TransactionResponse::BeginSuccess => {
+                Ok(crate::transaction::Transaction::new(
+                    connection,
+                    auth_token,
+                    transaction_id,
+                ))
+            }
+            TransactionResponse::Error { message } => {
+                // Return connection to pool on error
+                self.connection_manager.return_connection(connection).await;
+                Err(DatabaseError::InternalError {
+                    component: "DataClient".to_string(),
+                    details: format!("Failed to begin transaction: {}", message),
+                })
+            }
+            _ => {
+                // Return connection to pool on unexpected response
+                self.connection_manager.return_connection(connection).await;
+                Err(DatabaseError::InternalError {
+                    component: "DataClient".to_string(),
+                    details: "Unexpected response to begin transaction".to_string(),
+                })
+            }
+        }
+    }
 }
 
 // Request/Response types for serialization

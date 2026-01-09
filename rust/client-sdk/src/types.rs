@@ -365,6 +365,103 @@ pub struct ColumnMetadata {
     pub nullable: bool,
 }
 
+// ============================================================================
+// Admin Client Types
+// ============================================================================
+
+/// Node status in the cluster
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NodeStatus {
+    /// Node is healthy and accepting requests
+    Healthy,
+    /// Node is degraded but still functional
+    Degraded,
+    /// Node is unhealthy and not accepting requests
+    Unhealthy,
+    /// Node is offline
+    Offline,
+}
+
+/// Node role in the cluster
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NodeRole {
+    /// Primary node
+    Primary,
+    /// Replica node
+    Replica,
+    /// Coordinator node
+    Coordinator,
+}
+
+/// Information about a cluster node
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterNodeInfo {
+    /// Node identifier
+    pub node_id: NodeId,
+    /// Hostname
+    pub hostname: String,
+    /// Port
+    pub port: u16,
+    /// Node status
+    pub status: NodeStatus,
+    /// Node role
+    pub role: NodeRole,
+}
+
+/// Node health metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeHealthMetrics {
+    /// Node identifier
+    pub node_id: NodeId,
+    /// CPU usage percentage (0.0 to 100.0)
+    pub cpu_usage: f64,
+    /// Memory usage percentage (0.0 to 100.0)
+    pub memory_usage: f64,
+    /// Disk usage percentage (0.0 to 100.0)
+    pub disk_usage: f64,
+    /// Number of active connections
+    pub connection_count: u32,
+    /// Query throughput (queries per second)
+    pub query_throughput: f64,
+}
+
+/// Cluster-wide metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterMetrics {
+    /// Total number of queries processed
+    pub total_queries: u64,
+    /// Average query latency in milliseconds
+    pub average_latency_ms: f64,
+    /// Error rate (0.0 to 1.0)
+    pub error_rate: f64,
+    /// Total storage usage in bytes
+    pub storage_usage_bytes: u64,
+}
+
+/// User information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserInfo {
+    /// User identifier
+    pub user_id: UserId,
+    /// Username
+    pub username: String,
+    /// User roles
+    pub roles: Vec<Role>,
+    /// User permissions
+    pub permissions: Vec<Permission>,
+    /// Account creation timestamp
+    pub created_at: DateTime<Utc>,
+}
+
+/// User update request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserUpdate {
+    /// New password (optional)
+    pub password: Option<String>,
+    /// New roles (optional)
+    pub roles: Option<Vec<Role>>,
+}
+
 
 #[cfg(test)]
 mod tests {

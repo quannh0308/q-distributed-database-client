@@ -1,5 +1,6 @@
 //! Main client entry point for Q-Distributed-Database Client SDK
 
+use crate::admin_client::AdminClient;
 use crate::auth::{AuthenticationManager, Credentials};
 use crate::connection::ConnectionManager;
 use crate::data_client::DataClient;
@@ -15,6 +16,8 @@ pub struct Client {
     auth_manager: Arc<AuthenticationManager>,
     /// Data client for CRUD operations
     data_client: DataClient,
+    /// Admin client for cluster and user management
+    admin_client: AdminClient,
 }
 
 impl Client {
@@ -38,16 +41,25 @@ impl Client {
         // Create data client
         let data_client = DataClient::new(connection_manager.clone(), auth_manager.clone());
 
+        // Create admin client
+        let admin_client = AdminClient::new(connection_manager.clone(), auth_manager.clone());
+
         Ok(Self {
             connection_manager,
             auth_manager,
             data_client,
+            admin_client,
         })
     }
 
     /// Returns a reference to the data client
     pub fn data(&self) -> &DataClient {
         &self.data_client
+    }
+
+    /// Returns a reference to the admin client
+    pub fn admin(&self) -> &AdminClient {
+        &self.admin_client
     }
 
     /// Disconnects from the database cluster

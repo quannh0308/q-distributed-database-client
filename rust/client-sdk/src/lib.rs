@@ -37,15 +37,19 @@ pub mod data_client;
 pub mod error;
 pub mod protocol;
 pub mod query_builder;
+pub mod transaction;
 pub mod types;
+pub mod admin_client;
 
+pub use admin_client::AdminClient;
 pub use auth::{AuthToken, AuthenticationManager, Certificate, Credentials};
 pub use client::Client;
 pub use connection::{Connection, ConnectionManager, ConnectionPool, NodeHealth, PooledConnection, ProtocolType};
 pub use data_client::{BatchContext, DataClient, ExecuteResult, PreparedStatement, QueryResult, ResultStream, Row};
 pub use error::DatabaseError;
-pub use protocol::{Message, MessageCodec, MessageType};
+pub use protocol::{AdminRequest, AdminResponse, Message, MessageCodec, MessageType, Request, Response};
 pub use query_builder::{QueryBuilder, QueryType, OrderDirection};
+pub use transaction::{IsolationLevel, Transaction, TransactionRequest, TransactionResponse};
 pub use types::*;
 
 /// Result type alias using DatabaseError

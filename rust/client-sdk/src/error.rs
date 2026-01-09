@@ -174,6 +174,53 @@ pub enum DatabaseError {
         /// Details about the internal error
         details: String,
     },
+
+    // Admin Errors
+    /// Node not found
+    #[error("Node not found: {node_id}")]
+    NodeNotFound {
+        /// The node ID that was not found
+        node_id: u64,
+    },
+
+    /// Node already exists
+    #[error("Node already exists: {hostname}")]
+    NodeAlreadyExists {
+        /// The hostname of the existing node
+        hostname: String,
+    },
+
+    /// Insufficient permissions
+    #[error("Insufficient permissions: {required:?} required")]
+    InsufficientPermissions {
+        /// The required permission
+        required: String,
+    },
+
+    /// User not found
+    #[error("User not found: {user_id}")]
+    UserNotFound {
+        /// The user ID that was not found
+        user_id: u64,
+    },
+
+    /// User already exists
+    #[error("User already exists: {username}")]
+    UserAlreadyExists {
+        /// The username that already exists
+        username: String,
+    },
+
+    /// Invalid role
+    #[error("Invalid role: {role}")]
+    InvalidRole {
+        /// The invalid role name
+        role: String,
+    },
+
+    /// Cannot remove last admin
+    #[error("Cannot remove the last admin user")]
+    CannotRemoveLastAdmin,
 }
 
 impl DatabaseError {
