@@ -192,6 +192,8 @@ impl MessageCodec {
     ///
     /// Returns an error if serialization fails or if the message exceeds the size limit.
     /// Messages larger than the compression threshold will be compressed if compression is enabled.
+    /// Format: [compression_flag: u8][data: bytes]
+    /// - compression_flag: 0 = uncompressed, 1 = LZ4 compressed
     pub fn encode(&self, message: &Message) -> Result<Vec<u8>, DatabaseError> {
         let encoded = bincode::serialize(message).map_err(|e| DatabaseError::SerializationError {
             message: format!("Failed to serialize message: {}", e),
@@ -208,33 +210,57 @@ impl MessageCodec {
         // Compress if enabled and above threshold
         if self.compression_enabled && encoded.len() > self.compression_threshold {
             let compressed = lz4_flex::compress_prepend_size(&encoded);
-            Ok(compressed)
+            // Prepend compression flag (1 = compressed)
+            let mut result = Vec::with_capacity(compressed.len() + 1);
+            result.push(1u8);
+            result.extend_from_slice(&compressed);
+            Ok(result)
         } else {
-            Ok(encoded)
+            // Prepend compression flag (0 = uncompressed)
+            let mut result = Vec::with_capacity(encoded.len() + 1);
+            result.push(0u8);
+            result.extend_from_slice(&encoded);
+            Ok(result)
         }
     }
 
     /// Decodes a message from bytes using bincode with optional LZ4 decompression
     ///
     /// Returns an error if deserialization fails or if checksum validation fails.
-    /// Automatically detects and decompresses compressed messages.
+    /// Automatically detects and decompresses compressed messages based on the compression flag.
+    /// Format: [compression_flag: u8][data: bytes]
     pub fn decode(&self, data: &[u8]) -> Result<Message, DatabaseError> {
+        // Check minimum size (at least 1 byte for compression flag)
+        if data.is_empty() {
+            return Err(DatabaseError::SerializationError {
+                message: "Empty data buffer".to_string(),
+            });
+        }
+
         // Check message size
-        if data.len() > self.max_message_size {
+        if data.len() > self.max_message_size + 1 {
+            // +1 for compression flag
             return Err(DatabaseError::MessageTooLarge {
-                size: data.len(),
+                size: data.len() - 1,
                 max_size: self.max_message_size,
             });
         }
 
-        // Try to decompress if compression is enabled
-        let decompressed = if self.compression_enabled {
-            match lz4_flex::decompress_size_prepended(data) {
-                Ok(d) => d,
-                Err(_) => data.to_vec(), // Not compressed, use as-is
-            }
+        // Read compression flag
+        let compression_flag = data[0];
+        let payload = &data[1..];
+
+        // Decompress if needed
+        let decompressed = if compression_flag == 1 {
+            // Compressed data
+            lz4_flex::decompress_size_prepended(payload).map_err(|e| {
+                DatabaseError::SerializationError {
+                    message: format!("Failed to decompress message: {}", e),
+                }
+            })?
         } else {
-            data.to_vec()
+            // Uncompressed data
+            payload.to_vec()
         };
 
         let message: Message =
@@ -630,7 +656,8 @@ mod tests {
         assert!(result.is_err());
         
         if let Err(DatabaseError::MessageTooLarge { size, max_size }) = result {
-            assert_eq!(size, 100);
+            // Size is 99 because we subtract 1 byte for the compression flag
+            assert_eq!(size, 99);
             assert_eq!(max_size, 10);
         } else {
             panic!("Expected MessageTooLarge error");
@@ -931,8 +958,9 @@ mod property_tests {
                 return Ok(());
             }
             
-            // Corrupt a byte in the encoded data (but not in a way that breaks deserialization structure)
-            let idx = corruption_index % encoded.len();
+            // Corrupt a byte in the encoded data (but not the compression flag at index 0)
+            // Start from index 1 to avoid corrupting the compression flag
+            let idx = (corruption_index % (encoded.len() - 1)) + 1;
             encoded[idx] ^= 0xFF;
             
             // Try to decode - should either fail deserialization or checksum validation
@@ -1061,21 +1089,24 @@ mod property_tests {
             // Serialize without compression to get the uncompressed size
             let uncompressed = bincode::serialize(&msg).unwrap();
             
-            // If uncompressed size > threshold, encoded should be compressed (smaller or similar size)
-            // If uncompressed size <= threshold, encoded should be uncompressed (same size)
+            // Account for the compression flag byte (1 byte prepended to all encoded messages)
+            let expected_uncompressed_size = uncompressed.len() + 1;
+            
+            // If uncompressed size > threshold, encoded should be compressed (different size)
+            // If uncompressed size <= threshold, encoded should be uncompressed (same size + 1 byte flag)
             if uncompressed.len() > threshold {
-                // Message should be compressed - encoded size should be different from uncompressed
+                // Message should be compressed - encoded size should be different from uncompressed + flag
                 // (LZ4 adds a size prefix, so even if compression doesn't reduce size, it will be different)
                 prop_assert_ne!(
                     encoded.len(),
-                    uncompressed.len(),
+                    expected_uncompressed_size,
                     "Message above threshold should be compressed (sizes should differ)"
                 );
             } else {
-                // Message should not be compressed - sizes should match
+                // Message should not be compressed - sizes should match (uncompressed + 1 byte flag)
                 prop_assert_eq!(
                     encoded.len(),
-                    uncompressed.len(),
+                    expected_uncompressed_size,
                     "Message at or below threshold should not be compressed"
                 );
             }

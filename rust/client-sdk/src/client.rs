@@ -13,6 +13,7 @@ pub struct Client {
     /// Connection manager
     connection_manager: Arc<ConnectionManager>,
     /// Authentication manager
+    #[allow(dead_code)]
     auth_manager: Arc<AuthenticationManager>,
     /// Data client for CRUD operations
     data_client: DataClient,

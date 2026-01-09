@@ -7,7 +7,7 @@ use crate::auth::AuthToken;
 use crate::connection::PooledConnection;
 use crate::error::DatabaseError;
 use crate::protocol::MessageType;
-use crate::result::{ColumnMetadata, QueryResult, Row};
+use crate::result::{ColumnMetadata, QueryResult};
 use crate::types::{TransactionId, Value};
 use crate::Result;
 use serde::{Deserialize, Serialize};
@@ -16,22 +16,17 @@ use serde::{Deserialize, Serialize};
 use crate::data_client::ExecuteResult;
 
 /// Isolation level for transactions
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum IsolationLevel {
     /// Read uncommitted data
     ReadUncommitted,
     /// Read committed data only (default)
+    #[default]
     ReadCommitted,
     /// Repeatable reads within transaction
     RepeatableRead,
     /// Full serializable isolation
     Serializable,
-}
-
-impl Default for IsolationLevel {
-    fn default() -> Self {
-        IsolationLevel::ReadCommitted
-    }
 }
 
 /// Transaction request types

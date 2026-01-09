@@ -59,12 +59,12 @@ impl Row {
 
     /// Gets a value by column index
     pub fn get(&self, index: usize) -> Result<&Value> {
-        self.values.get(index).ok_or_else(|| {
+        self.values.get(index).ok_or(
             DatabaseError::IndexOutOfBounds {
                 index,
                 max: self.values.len(),
             }
-        })
+        )
     }
 
     /// Gets a value by column name
@@ -170,9 +170,13 @@ impl QueryResult {
     pub fn iter(&self) -> impl Iterator<Item = &Row> {
         self.rows.iter()
     }
+}
 
-    /// Consumes the result and returns an iterator over the rows
-    pub fn into_iter(self) -> impl Iterator<Item = Row> {
+impl IntoIterator for QueryResult {
+    type Item = Row;
+    type IntoIter = std::vec::IntoIter<Row>;
+
+    fn into_iter(self) -> Self::IntoIter {
         self.rows.into_iter()
     }
 }
@@ -514,12 +518,21 @@ mod property_tests {
 
         #[test]
         fn prop_column_access_methods((columns_arc, row) in row_strategy()) {
-            // Test each column
-            for (i, col) in columns_arc.iter().enumerate() {
-                // Get by index
-                let by_index = row.get(i);
+            // Test each column, but only test the first occurrence of each unique name
+            // (since get_by_name returns the first match for duplicate names)
+            let mut seen_names = std::collections::HashSet::new();
+            
+            for (_i, col) in columns_arc.iter().enumerate() {
+                // Skip if we've already tested this column name
+                if !seen_names.insert(&col.name) {
+                    continue;
+                }
                 
-                // Get by name
+                // Get by index (this gets the first occurrence)
+                let first_index = columns_arc.iter().position(|c| c.name == col.name).unwrap();
+                let by_index = row.get(first_index);
+                
+                // Get by name (this also gets the first occurrence)
                 let by_name = row.get_by_name(&col.name);
 
                 // Both should succeed
