@@ -470,6 +470,18 @@ impl DataClient {
             operations: Vec::new(),
         })
     }
+
+    /// Executes a query builder and returns the result
+    pub async fn query_builder(&self, builder: crate::query_builder::QueryBuilder) -> Result<QueryResult> {
+        let (sql, params) = builder.build()?;
+        self.query_with_params(&sql, &params).await
+    }
+
+    /// Executes a query builder for non-SELECT queries
+    pub async fn execute_builder(&self, builder: crate::query_builder::QueryBuilder) -> Result<ExecuteResult> {
+        let (sql, params) = builder.build()?;
+        self.execute_with_params(&sql, &params).await
+    }
 }
 
 // Request/Response types for serialization
@@ -605,5 +617,23 @@ mod tests {
 
         assert_eq!(result.columns.len(), 1);
         assert_eq!(result.rows.len(), 2);
+    }
+
+    #[test]
+    fn test_query_builder_integration() {
+        use crate::query_builder::{QueryBuilder, OrderDirection};
+        
+        // Test that QueryBuilder can be built and produces valid SQL
+        let (sql, params) = QueryBuilder::select(&["id", "name"])
+            .from("users")
+            .where_clause("age > ?", Value::Int(18))
+            .order_by("name", OrderDirection::Asc)
+            .limit(10)
+            .build()
+            .unwrap();
+        
+        assert_eq!(sql, "SELECT id, name FROM users WHERE age > ? ORDER BY name ASC LIMIT 10");
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0], Value::Int(18));
     }
 }

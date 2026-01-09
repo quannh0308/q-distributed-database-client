@@ -41,617 +41,192 @@ Q-Distributed-Database Cluster
 
 ## Current Task Design
 
-### Task 7: Implement Query Builder
+### Task 8: Checkpoint - Ensure All Tests Pass
 
-This task implements the QueryBuilder component that provides a fluent API for constructing type-safe database queries.
+This checkpoint validates that all implemented functionality is working correctly before proceeding to transaction support.
 
-#### Design Overview
+#### Checkpoint Purpose
 
-The QueryBuilder provides a safe, ergonomic way to construct SQL queries programmatically. It:
+Checkpoints serve as quality gates in the development process. They ensure:
+1. All implemented features are working correctly
+2. No regressions have been introduced
+3. Code quality standards are maintained
+4. Documentation is up to date
+5. The codebase is ready for the next major feature
 
-1. **Fluent API**: Provides method chaining for readable query construction
-2. **SQL Injection Prevention**: Uses parameterized queries exclusively
-3. **Type Safety**: Validates query structure at build time
-4. **Performance**: Integrates with prepared statement caching
-5. **Flexibility**: Supports SELECT, INSERT, UPDATE, DELETE operations
+#### What to Verify
 
-#### Component Design
+**1. Test Suite Execution**
 
-**1. QueryBuilder Structure**
+Run all tests to ensure everything passes:
 
-The main struct that builds queries:
+```bash
+# Run all tests
+cd rust/client-sdk
+cargo test --all-features
 
-```rust
-pub struct QueryBuilder {
-    query_type: QueryType,
-    table: Option<String>,
-    columns: Vec<String>,
-    conditions: Vec<Condition>,
-    params: Vec<Value>,
-    values: Vec<Vec<Value>>,
-    updates: Vec<(String, Value)>,
-    joins: Vec<Join>,
-    order_by: Vec<OrderBy>,
-    limit: Option<u64>,
-    offset: Option<u64>,
-}
+# Run property-based tests
+cargo test --all-features -- --include-ignored
 
-pub enum QueryType {
-    Select,
-    Insert,
-    Update,
-    Delete,
-}
+# Check for warnings
+cargo clippy --all-features
 
-pub struct Condition {
-    pub clause: String,
-    pub operator: LogicalOperator,
-}
-
-pub enum LogicalOperator {
-    None,  // First condition
-    And,
-    Or,
-}
-
-pub struct Join {
-    pub join_type: JoinType,
-    pub table: String,
-    pub on_clause: String,
-}
-
-pub enum JoinType {
-    Inner,
-    Left,
-    Right,
-    Full,
-}
-
-pub struct OrderBy {
-    pub column: String,
-    pub direction: OrderDirection,
-}
-
-pub enum OrderDirection {
-    Asc,
-    Desc,
-}
+# Verify build
+cargo build --all-features
 ```
 
-**2. Query Construction Methods**
+**2. Component Integration**
 
-**SELECT Queries:**
-```rust
-impl QueryBuilder {
-    pub fn select(columns: &[&str]) -> Self {
-        Self {
-            query_type: QueryType::Select,
-            columns: columns.iter().map(|s| s.to_string()).collect(),
-            table: None,
-            conditions: Vec::new(),
-            params: Vec::new(),
-            values: Vec::new(),
-            updates: Vec::new(),
-            joins: Vec::new(),
-            order_by: Vec::new(),
-            limit: None,
-            offset: None,
-        }
-    }
-    
-    pub fn from(mut self, table: &str) -> Self {
-        self.table = Some(table.to_string());
-        self
-    }
-    
-    pub fn where_clause(mut self, condition: &str, value: Value) -> Self {
-        self.conditions.push(Condition {
-            clause: condition.to_string(),
-            operator: if self.conditions.is_empty() {
-                LogicalOperator::None
-            } else {
-                LogicalOperator::And
-            },
-        });
-        self.params.push(value);
-        self
-    }
-    
-    pub fn and(mut self, condition: &str, value: Value) -> Self {
-        self.conditions.push(Condition {
-            clause: condition.to_string(),
-            operator: LogicalOperator::And,
-        });
-        self.params.push(value);
-        self
-    }
-    
-    pub fn or(mut self, condition: &str, value: Value) -> Self {
-        self.conditions.push(Condition {
-            clause: condition.to_string(),
-            operator: LogicalOperator::Or,
-        });
-        self.params.push(value);
-        self
-    }
-    
-    pub fn order_by(mut self, column: &str, direction: OrderDirection) -> Self {
-        self.order_by.push(OrderBy {
-            column: column.to_string(),
-            direction,
-        });
-        self
-    }
-    
-    pub fn limit(mut self, limit: u64) -> Self {
-        self.limit = Some(limit);
-        self
-    }
-    
-    pub fn offset(mut self, offset: u64) -> Self {
-        self.offset = Some(offset);
-        self
-    }
-}
-```
+Verify that all components work together correctly:
 
-**INSERT Queries:**
-```rust
-impl QueryBuilder {
-    pub fn insert_into(table: &str) -> Self {
-        Self {
-            query_type: QueryType::Insert,
-            table: Some(table.to_string()),
-            columns: Vec::new(),
-            conditions: Vec::new(),
-            params: Vec::new(),
-            values: Vec::new(),
-            updates: Vec::new(),
-            joins: Vec::new(),
-            order_by: Vec::new(),
-            limit: None,
-            offset: None,
-        }
-    }
-    
-    pub fn columns(mut self, columns: &[&str]) -> Self {
-        self.columns = columns.iter().map(|s| s.to_string()).collect();
-        self
-    }
-    
-    pub fn values(mut self, values: &[Value]) -> Self {
-        self.values.push(values.to_vec());
-        self
-    }
-}
-```
+- **Message Protocol ↔ Connection**: Messages serialize/deserialize correctly
+- **Connection ↔ Authentication**: Auth tokens are included in requests
+- **Authentication ↔ DataClient**: Automatic re-authentication works
+- **DataClient ↔ QueryBuilder**: Query builder integrates with execute methods
+- **ConnectionManager ↔ ConnectionPool**: Pool management and health checking work
 
-**UPDATE Queries:**
-```rust
-impl QueryBuilder {
-    pub fn update(table: &str) -> Self {
-        Self {
-            query_type: QueryType::Update,
-            table: Some(table.to_string()),
-            columns: Vec::new(),
-            conditions: Vec::new(),
-            params: Vec::new(),
-            values: Vec::new(),
-            updates: Vec::new(),
-            joins: Vec::new(),
-            order_by: Vec::new(),
-            limit: None,
-            offset: None,
-        }
-    }
-    
-    pub fn set(mut self, column: &str, value: Value) -> Self {
-        self.updates.push((column.to_string(), value));
-        self
-    }
-}
-```
+**3. Property Test Coverage**
 
-**DELETE Queries:**
-```rust
-impl QueryBuilder {
-    pub fn delete_from(table: &str) -> Self {
-        Self {
-            query_type: QueryType::Delete,
-            table: Some(table.to_string()),
-            columns: Vec::new(),
-            conditions: Vec::new(),
-            params: Vec::new(),
-            values: Vec::new(),
-            updates: Vec::new(),
-            joins: Vec::new(),
-            order_by: Vec::new(),
-            limit: None,
-            offset: None,
-        }
-    }
-}
-```
+Ensure all implemented properties are tested:
 
-**3. SQL Generation**
+**Completed Properties (Tasks 2-7):**
+- ✅ Property 1: Connection Establishment
+- ✅ Property 2: Exponential Backoff on Retry
+- ✅ Property 3: Load Distribution
+- ✅ Property 4: Unhealthy Node Avoidance
+- ✅ Property 5: Connection Reuse
+- ✅ Property 6: Graceful Shutdown
+- ✅ Property 7: Protocol Selection Priority
+- ✅ Property 8: Auth Token Structure
+- ✅ Property 9: Token Inclusion in Requests
+- ✅ Property 10: Automatic Re-authentication
+- ✅ Property 11: Token Invalidation on Logout
+- ✅ Property 12: Token TTL Respect
+- ✅ Property 13: Insert-Then-Retrieve Consistency
+- ✅ Property 14: Update Visibility
+- ✅ Property 15: Delete Removes Record
+- ✅ Property 16: Operation Result Structure
+- ✅ Property 17: Batch Operation Atomicity
+- ✅ Property 18: Query Builder Produces Valid SQL
+- ✅ Property 19: Condition Logic Correctness
+- ✅ Property 20: SQL Injection Prevention
+- ✅ Property 27: Retry with Exponential Backoff
+- ✅ Property 32: Result Deserialization
+- ✅ Property 33: Result Iteration
+- ✅ Property 34: Column Access Methods
+- ✅ Property 35: Streaming Memory Efficiency
+- ✅ Property 37: Message Serialization Round-Trip
+- ✅ Property 38: Checksum Validation Detects Corruption
+- ✅ Property 39: Length-Prefixed Framing
+- ✅ Property 40: Message Size Limit Enforcement
 
-The build() method generates SQL and parameters:
+**4. Code Quality Checks**
 
-```rust
-impl QueryBuilder {
-    pub fn build(self) -> Result<(String, Vec<Value>)> {
-        let sql = match self.query_type {
-            QueryType::Select => self.build_select()?,
-            QueryType::Insert => self.build_insert()?,
-            QueryType::Update => self.build_update()?,
-            QueryType::Delete => self.build_delete()?,
-        };
-        
-        Ok((sql, self.params))
-    }
-    
-    fn build_select(&self) -> Result<String> {
-        let table = self.table.as_ref()
-            .ok_or(DatabaseError::InvalidQuery { 
-                message: "SELECT requires FROM clause".to_string() 
-            })?;
-        
-        let columns = if self.columns.is_empty() {
-            "*".to_string()
-        } else {
-            self.columns.join(", ")
-        };
-        
-        let mut sql = format!("SELECT {} FROM {}", columns, table);
-        
-        // Add WHERE clause
-        if !self.conditions.is_empty() {
-            sql.push_str(" WHERE ");
-            for (i, condition) in self.conditions.iter().enumerate() {
-                if i > 0 {
-                    match condition.operator {
-                        LogicalOperator::And => sql.push_str(" AND "),
-                        LogicalOperator::Or => sql.push_str(" OR "),
-                        LogicalOperator::None => {},
-                    }
-                }
-                sql.push_str(&condition.clause);
-            }
-        }
-        
-        // Add ORDER BY clause
-        if !self.order_by.is_empty() {
-            sql.push_str(" ORDER BY ");
-            let order_clauses: Vec<String> = self.order_by.iter()
-                .map(|o| format!("{} {}", o.column, 
-                    match o.direction {
-                        OrderDirection::Asc => "ASC",
-                        OrderDirection::Desc => "DESC",
-                    }))
-                .collect();
-            sql.push_str(&order_clauses.join(", "));
-        }
-        
-        // Add LIMIT clause
-        if let Some(limit) = self.limit {
-            sql.push_str(&format!(" LIMIT {}", limit));
-        }
-        
-        // Add OFFSET clause
-        if let Some(offset) = self.offset {
-            sql.push_str(&format!(" OFFSET {}", offset));
-        }
-        
-        Ok(sql)
-    }
-    
-    fn build_insert(&self) -> Result<String> {
-        let table = self.table.as_ref()
-            .ok_or(DatabaseError::InvalidQuery { 
-                message: "INSERT requires table name".to_string() 
-            })?;
-        
-        if self.columns.is_empty() || self.values.is_empty() {
-            return Err(DatabaseError::InvalidQuery {
-                message: "INSERT requires columns and values".to_string()
-            });
-        }
-        
-        let columns = self.columns.join(", ");
-        let placeholders = (0..self.columns.len())
-            .map(|_| "?")
-            .collect::<Vec<_>>()
-            .join(", ");
-        
-        let sql = format!(
-            "INSERT INTO {} ({}) VALUES ({})",
-            table, columns, placeholders
-        );
-        
-        Ok(sql)
-    }
-    
-    fn build_update(&self) -> Result<String> {
-        let table = self.table.as_ref()
-            .ok_or(DatabaseError::InvalidQuery { 
-                message: "UPDATE requires table name".to_string() 
-            })?;
-        
-        if self.updates.is_empty() {
-            return Err(DatabaseError::InvalidQuery {
-                message: "UPDATE requires SET clause".to_string()
-            });
-        }
-        
-        let set_clauses: Vec<String> = self.updates.iter()
-            .map(|(col, _)| format!("{} = ?", col))
-            .collect();
-        
-        let mut sql = format!("UPDATE {} SET {}", table, set_clauses.join(", "));
-        
-        // Add WHERE clause
-        if !self.conditions.is_empty() {
-            sql.push_str(" WHERE ");
-            for (i, condition) in self.conditions.iter().enumerate() {
-                if i > 0 {
-                    match condition.operator {
-                        LogicalOperator::And => sql.push_str(" AND "),
-                        LogicalOperator::Or => sql.push_str(" OR "),
-                        LogicalOperator::None => {},
-                    }
-                }
-                sql.push_str(&condition.clause);
-            }
-        }
-        
-        Ok(sql)
-    }
-    
-    fn build_delete(&self) -> Result<String> {
-        let table = self.table.as_ref()
-            .ok_or(DatabaseError::InvalidQuery { 
-                message: "DELETE requires table name".to_string() 
-            })?;
-        
-        let mut sql = format!("DELETE FROM {}", table);
-        
-        // Add WHERE clause
-        if !self.conditions.is_empty() {
-            sql.push_str(" WHERE ");
-            for (i, condition) in self.conditions.iter().enumerate() {
-                if i > 0 {
-                    match condition.operator {
-                        LogicalOperator::And => sql.push_str(" AND "),
-                        LogicalOperator::Or => sql.push_str(" OR "),
-                        LogicalOperator::None => {},
-                    }
-                }
-                sql.push_str(&condition.clause);
-            }
-        }
-        
-        Ok(sql)
-    }
-}
-```
+- No compilation errors
+- No critical clippy warnings
+- Code follows Rust best practices
+- Documentation is complete
+- Error handling is comprehensive
 
-**4. SQL Injection Prevention**
+**5. Feature Completeness**
 
-The QueryBuilder prevents SQL injection through:
+Verify all features from Tasks 2-7 are working:
 
-1. **Parameterized Queries**: All user values are passed as parameters, never concatenated into SQL
-2. **Placeholder Substitution**: Uses `?` placeholders that are replaced by the database driver
-3. **No String Concatenation**: SQL structure is built separately from user data
-4. **Validation**: Validates query structure before building SQL
+**Message Protocol (Task 2):**
+- ✅ Bincode serialization with CRC32 checksums
+- ✅ Length-prefixed framing
+- ✅ Message size validation
+- ✅ Compression support
 
-**Example of Safe Query Construction:**
-```rust
-// SAFE: User input is parameterized
-let (sql, params) = QueryBuilder::select(&["*"])
-    .from("users")
-    .where_clause("username = ?", Value::String(user_input))
-    .build()?;
-// Generates: "SELECT * FROM users WHERE username = ?"
-// Parameters: [user_input]
+**Connection Management (Task 3):**
+- ✅ TCP connection establishment
+- ✅ Connection pooling (min/max connections)
+- ✅ Health monitoring and failover
+- ✅ Retry with exponential backoff
+- ✅ Graceful shutdown
 
-// UNSAFE (NOT DONE): Direct concatenation
-// let sql = format!("SELECT * FROM users WHERE username = '{}'", user_input);
-// This would allow SQL injection!
-```
+**Authentication (Task 5):**
+- ✅ Token-based authentication
+- ✅ Automatic re-authentication on expiration
+- ✅ Token TTL management
+- ✅ Logout and token invalidation
+- ✅ Protocol negotiation
 
-**5. Integration with DataClient**
+**Data Client (Task 6):**
+- ✅ CRUD operations (INSERT, SELECT, UPDATE, DELETE)
+- ✅ Parameterized queries
+- ✅ Batch operations
+- ✅ Streaming results
+- ✅ Result deserialization
 
-The QueryBuilder integrates with DataClient for execution:
+**Query Builder (Task 7):**
+- ✅ Fluent API for query construction
+- ✅ SELECT, INSERT, UPDATE, DELETE support
+- ✅ WHERE clauses with AND/OR logic
+- ✅ SQL injection prevention
+- ✅ Prepared statement caching
 
-```rust
-impl DataClient {
-    pub async fn query_builder(&self, builder: QueryBuilder) -> Result<QueryResult> {
-        let (sql, params) = builder.build()?;
-        self.query_with_params(&sql, &params).await
-    }
-    
-    pub async fn execute_builder(&self, builder: QueryBuilder) -> Result<ExecuteResult> {
-        let (sql, params) = builder.build()?;
-        self.execute_with_params(&sql, &params).await
-    }
-}
-```
+#### Common Issues to Check
 
-**6. Prepared Statement Caching**
+**Test Failures:**
+- Property tests may fail due to edge cases
+- Integration tests may fail due to timing issues
+- Unit tests may fail due to incorrect assumptions
 
-The QueryBuilder works with prepared statement caching:
+**Compilation Issues:**
+- Missing imports or dependencies
+- Type mismatches
+- Lifetime errors
 
-```rust
-impl DataClient {
-    pub async fn prepare(&self, sql: &str) -> Result<PreparedStatement> {
-        // Check cache first
-        {
-            let cache = self.prepared_statements.read().await;
-            if let Some(stmt) = cache.get(sql) {
-                return Ok(stmt.clone());
-            }
-        }
-        
-        // Not in cache, prepare on server
-        let mut conn = self.connection_manager.get_connection().await?;
-        let token = self.auth_manager.get_valid_token(&mut conn).await?;
-        
-        let request = Request::Prepare(PrepareRequest {
-            sql: sql.to_string(),
-            auth_token: Some(token),
-        });
-        
-        let response = conn.send_request(request).await?;
-        
-        match response {
-            Response::Prepare(stmt) => {
-                // Add to cache
-                let mut cache = self.prepared_statements.write().await;
-                cache.insert(sql.to_string(), stmt.clone());
-                Ok(stmt)
-            },
-            Response::Error(err) => Err(err.into()),
-            _ => Err(DatabaseError::ProtocolError {
-                message: "Unexpected response type".to_string()
-            }),
-        }
-    }
-}
+**Warnings:**
+- Unused variables or imports
+- Dead code
+- Deprecated API usage
 
-pub struct PreparedStatement {
-    pub statement_id: StatementId,
-    pub sql: String,
-    pub param_count: usize,
-}
-```
+**Performance Issues:**
+- Connection pool exhaustion
+- Memory leaks in streaming
+- Slow property test execution
 
-#### Usage Examples
+#### Troubleshooting Guide
 
-**SELECT Query:**
-```rust
-let (sql, params) = QueryBuilder::select(&["id", "name", "email"])
-    .from("users")
-    .where_clause("age > ?", Value::Int(18))
-    .and("status = ?", Value::String("active".to_string()))
-    .order_by("name", OrderDirection::Asc)
-    .limit(10)
-    .build()?;
+**If tests fail:**
+1. Read the error message carefully
+2. Identify which component is failing
+3. Check if it's a test issue or implementation issue
+4. Review the relevant property or requirement
+5. Fix the issue and re-run tests
 
-let result = client.data().query_with_params(&sql, &params).await?;
-```
+**If compilation fails:**
+1. Check for missing dependencies in Cargo.toml
+2. Verify all imports are correct
+3. Check for type mismatches
+4. Review lifetime annotations
 
-**INSERT Query:**
-```rust
-let (sql, params) = QueryBuilder::insert_into("users")
-    .columns(&["name", "email", "age"])
-    .values(&[
-        Value::String("Alice".to_string()),
-        Value::String("alice@example.com".to_string()),
-        Value::Int(25)
-    ])
-    .build()?;
+**If warnings appear:**
+1. Address critical warnings first
+2. Fix unused code warnings
+3. Update deprecated API usage
+4. Ensure all public items are documented
 
-let result = client.data().execute_with_params(&sql, &params).await?;
-```
+#### Next Steps After Checkpoint
 
-**UPDATE Query:**
-```rust
-let (sql, params) = QueryBuilder::update("users")
-    .set("status", Value::String("inactive".to_string()))
-    .set("updated_at", Value::Timestamp(Utc::now()))
-    .where_clause("id = ?", Value::Int(123))
-    .build()?;
+Once all tests pass and the checkpoint is complete:
+1. Review any open questions or concerns
+2. Document any known limitations
+3. Prepare for Task 9: Transaction Support
+4. Update project status and progress tracking
 
-let result = client.data().execute_with_params(&sql, &params).await?;
-```
+#### Success Criteria
 
-**DELETE Query:**
-```rust
-let (sql, params) = QueryBuilder::delete_from("users")
-    .where_clause("status = ?", Value::String("deleted".to_string()))
-    .and("created_at < ?", Value::Timestamp(cutoff_date))
-    .build()?;
-
-let result = client.data().execute_with_params(&sql, &params).await?;
-```
-
-#### Testing Strategy
-
-**Unit Tests:**
-- Test SELECT query generation
-- Test INSERT query generation
-- Test UPDATE query generation
-- Test DELETE query generation
-- Test WHERE clause construction
-- Test ORDER BY clause construction
-- Test LIMIT/OFFSET clauses
-- Test error cases (missing table, missing columns, etc.)
-
-**Property Tests:**
-
-**Property 18: Query Builder Produces Valid SQL**
-- Generate random valid query builder sequences
-- Build SQL from each sequence
-- Verify SQL is syntactically valid
-- Verify all placeholders match parameter count
-
-**Property 19: Condition Logic Correctness**
-- Generate random combinations of AND/OR conditions
-- Build SQL with conditions
-- Verify logical operators are correctly placed
-- Verify condition order is preserved
-
-**Property 20: SQL Injection Prevention**
-- Generate random strings with SQL special characters
-- Use strings as parameter values
-- Build and execute queries
-- Verify strings are treated as data, not SQL code
-- Verify no SQL syntax errors from special characters
-
-#### Performance Considerations
-
-**Query Building:**
-- Minimal allocations during construction
-- String building optimized with capacity hints
-- Reuse of common query patterns
-
-**Prepared Statements:**
-- Cache prepared statements on client side
-- Reduce server-side parsing overhead
-- Reuse parsed query plans
-
-**Parameter Binding:**
-- Efficient parameter serialization
-- Batch parameter binding when possible
-
-#### Error Handling
-
-**Query Building Errors:**
-- `InvalidQuery`: Missing required clauses (FROM, SET, etc.)
-- `TooManyParameters`: Parameter count exceeds limit
-- `InvalidColumnName`: Column name contains invalid characters
-
-**Error Handling Strategy:**
-1. Validate query structure during build()
-2. Return clear error messages indicating what's missing
-3. Prevent invalid queries from being sent to server
-
-#### Implementation Notes
-
-**Immutability:**
-- QueryBuilder methods consume self and return new instance
-- Enables method chaining
-- Prevents accidental mutation
-
-**Type Safety:**
-- QueryType enum ensures correct method usage
-- Compile-time validation of query structure
-- Prevents mixing incompatible operations
-
-**Extensibility:**
-- Easy to add new query types (MERGE, UPSERT)
-- Easy to add new clauses (GROUP BY, HAVING)
-- Easy to add new join types
+- ✅ All unit tests pass
+- ✅ All property-based tests pass (minimum 100 iterations each)
+- ✅ No compilation errors
+- ✅ No critical clippy warnings
+- ✅ Code builds successfully with `--all-features`
+- ✅ All implemented features working correctly
+- ✅ Integration between components verified
+- ✅ Documentation is complete and accurate
 
 ---
 

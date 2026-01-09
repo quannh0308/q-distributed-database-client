@@ -36,6 +36,7 @@ pub mod connection;
 pub mod data_client;
 pub mod error;
 pub mod protocol;
+pub mod query_builder;
 pub mod types;
 
 pub use auth::{AuthToken, AuthenticationManager, Certificate, Credentials};
@@ -44,6 +45,7 @@ pub use connection::{Connection, ConnectionManager, ConnectionPool, NodeHealth, 
 pub use data_client::{BatchContext, DataClient, ExecuteResult, PreparedStatement, QueryResult, ResultStream, Row};
 pub use error::DatabaseError;
 pub use protocol::{Message, MessageCodec, MessageType};
+pub use query_builder::{QueryBuilder, QueryType, OrderDirection};
 pub use types::*;
 
 /// Result type alias using DatabaseError

@@ -224,33 +224,33 @@ This implementation plan breaks down the client SDK development into discrete, m
     - **Property 17: Batch Operation Atomicity**
     - **Validates: Requirements 3.6**
 
-- [ ] 7. Implement query builder
-  - [ ] 7.1 Implement QueryBuilder with fluent API
+- [x] 7. Implement query builder
+  - [x] 7.1 Implement QueryBuilder with fluent API
     - Implement select(), insert_into(), update(), delete_from()
     - Implement from(), where_clause(), and(), or()
     - Implement values(), set() for INSERT/UPDATE
     - Implement build() to generate SQL and parameters
     - _Requirements: 4.1, 4.2_
 
-  - [ ]* 7.2 Write property test for query builder produces valid SQL
+  - [x]* 7.2 Write property test for query builder produces valid SQL
     - **Property 18: Query Builder Produces Valid SQL**
     - **Validates: Requirements 4.1**
 
-  - [ ]* 7.3 Write property test for condition logic correctness
+  - [x]* 7.3 Write property test for condition logic correctness
     - **Property 19: Condition Logic Correctness**
     - **Validates: Requirements 4.2**
 
-  - [ ] 7.4 Implement SQL injection prevention
+  - [x] 7.4 Implement SQL injection prevention
     - Always use parameterized queries
     - Never concatenate user input into SQL
     - Validate parameter binding
     - _Requirements: 4.3_
 
-  - [ ]* 7.5 Write property test for SQL injection prevention
+  - [x]* 7.5 Write property test for SQL injection prevention
     - **Property 20: SQL Injection Prevention**
     - **Validates: Requirements 4.3**
 
-  - [ ] 7.6 Implement prepared statement caching
+  - [x] 7.6 Implement prepared statement caching
     - Cache prepared statements by SQL string
     - Reuse prepared statements for performance
     - Implement prepare() method
