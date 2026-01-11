@@ -59,12 +59,12 @@ impl Row {
 
     /// Gets a value by column index
     pub fn get(&self, index: usize) -> Result<&Value> {
-        self.values.get(index).ok_or(
-            DatabaseError::IndexOutOfBounds {
+        self.values
+            .get(index)
+            .ok_or(DatabaseError::IndexOutOfBounds {
                 index,
                 max: self.values.len(),
-            }
-        )
+            })
     }
 
     /// Gets a value by column name
@@ -373,7 +373,6 @@ mod tests {
     }
 }
 
-
 // Property-Based Tests
 #[cfg(test)]
 mod property_tests {
@@ -396,10 +395,10 @@ mod property_tests {
     // Strategy for generating ColumnMetadata
     fn column_metadata_strategy() -> impl Strategy<Value = ColumnMetadata> {
         (
-            "[a-z][a-z0-9_]{0,19}",  // column name
-            data_type_strategy(),     // data type
-            any::<bool>(),            // nullable
-            0usize..10,               // ordinal
+            "[a-z][a-z0-9_]{0,19}", // column name
+            data_type_strategy(),   // data type
+            any::<bool>(),          // nullable
+            0usize..10,             // ordinal
         )
             .prop_map(|(name, data_type, nullable, ordinal)| ColumnMetadata {
                 name,
@@ -446,7 +445,7 @@ mod property_tests {
             num_rows in 0usize..20,
         ) {
             let num_cols = columns.len();
-            
+
             // Generate rows with the correct number of values
             let value_rows: Vec<Vec<Value>> = (0..num_rows)
                 .map(|_| {
@@ -489,7 +488,7 @@ mod property_tests {
             num_rows in 0usize..20,
         ) {
             let num_cols = columns.len();
-            
+
             // Generate rows
             let value_rows: Vec<Vec<Value>> = (0..num_rows)
                 .map(|_| {
@@ -503,7 +502,7 @@ mod property_tests {
 
             // Count rows via iteration
             let iter_count = result.iter().count();
-            
+
             // Verify iteration yields exactly the number of rows
             prop_assert_eq!(iter_count, num_rows);
             prop_assert_eq!(iter_count, result.len());
@@ -521,17 +520,17 @@ mod property_tests {
             // Test each column, but only test the first occurrence of each unique name
             // (since get_by_name returns the first match for duplicate names)
             let mut seen_names = std::collections::HashSet::new();
-            
+
             for (_i, col) in columns_arc.iter().enumerate() {
                 // Skip if we've already tested this column name
                 if !seen_names.insert(&col.name) {
                     continue;
                 }
-                
+
                 // Get by index (this gets the first occurrence)
                 let first_index = columns_arc.iter().position(|c| c.name == col.name).unwrap();
                 let by_index = row.get(first_index);
-                
+
                 // Get by name (this also gets the first occurrence)
                 let by_name = row.get_by_name(&col.name);
 
@@ -542,7 +541,7 @@ mod property_tests {
                 // Both should return the same value
                 let val_by_index = by_index.unwrap();
                 let val_by_name = by_name.unwrap();
-                
+
                 prop_assert_eq!(val_by_index, val_by_name);
             }
         }

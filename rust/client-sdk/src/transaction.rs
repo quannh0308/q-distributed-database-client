@@ -38,13 +38,9 @@ pub enum TransactionRequest {
         isolation_level: IsolationLevel,
     },
     /// Commit a transaction
-    Commit {
-        transaction_id: TransactionId,
-    },
+    Commit { transaction_id: TransactionId },
     /// Rollback a transaction
-    Rollback {
-        transaction_id: TransactionId,
-    },
+    Rollback { transaction_id: TransactionId },
 }
 
 /// Transaction response types
@@ -156,7 +152,11 @@ impl Transaction {
     }
 
     /// Executes a SQL statement with parameters within the transaction
-    pub async fn execute_with_params(&mut self, sql: &str, params: &[Value]) -> Result<ExecuteResult> {
+    pub async fn execute_with_params(
+        &mut self,
+        sql: &str,
+        params: &[Value],
+    ) -> Result<ExecuteResult> {
         self.check_active()?;
 
         // Build execute request with transaction ID
@@ -168,9 +168,10 @@ impl Transaction {
         };
 
         // Serialize request
-        let payload = bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
-            message: format!("Failed to serialize execute request: {}", e),
-        })?;
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
+                message: format!("Failed to serialize execute request: {}", e),
+            })?;
 
         // Send request and receive response
         let response = match self
@@ -231,9 +232,10 @@ impl Transaction {
         };
 
         // Serialize request
-        let payload = bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
-            message: format!("Failed to serialize query request: {}", e),
-        })?;
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
+                message: format!("Failed to serialize query request: {}", e),
+            })?;
 
         // Send request and receive response
         let response = match self
@@ -270,7 +272,10 @@ impl Transaction {
             });
         }
 
-        Ok(QueryResult::from_raw(query_response.columns, query_response.rows))
+        Ok(QueryResult::from_raw(
+            query_response.columns,
+            query_response.rows,
+        ))
     }
 
     /// Commits the transaction, persisting all changes
@@ -283,9 +288,10 @@ impl Transaction {
         };
 
         // Serialize request
-        let payload = bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
-            message: format!("Failed to serialize commit request: {}", e),
-        })?;
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
+                message: format!("Failed to serialize commit request: {}", e),
+            })?;
 
         // Send request and receive response
         let response = self
@@ -297,11 +303,9 @@ impl Transaction {
         match response {
             Ok(resp) => {
                 // Parse response
-                let txn_response: TransactionResponse =
-                    bincode::deserialize(&resp.payload).map_err(|e| {
-                        DatabaseError::SerializationError {
-                            message: format!("Failed to deserialize transaction response: {}", e),
-                        }
+                let txn_response: TransactionResponse = bincode::deserialize(&resp.payload)
+                    .map_err(|e| DatabaseError::SerializationError {
+                        message: format!("Failed to deserialize transaction response: {}", e),
                     })?;
 
                 match txn_response {
@@ -318,12 +322,10 @@ impl Transaction {
                             reason: message,
                         })
                     }
-                    _ => {
-                        Err(DatabaseError::InternalError {
-                            component: "Transaction".to_string(),
-                            details: "Unexpected response to commit".to_string(),
-                        })
-                    }
+                    _ => Err(DatabaseError::InternalError {
+                        component: "Transaction".to_string(),
+                        details: "Unexpected response to commit".to_string(),
+                    }),
                 }
             }
             Err(e) => {
@@ -352,9 +354,10 @@ impl Transaction {
         };
 
         // Serialize request
-        let payload = bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
-            message: format!("Failed to serialize rollback request: {}", e),
-        })?;
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
+                message: format!("Failed to serialize rollback request: {}", e),
+            })?;
 
         // Send request and receive response
         let response = self
@@ -376,18 +379,14 @@ impl Transaction {
                 self.is_committed = true; // Mark as "done"
                 Ok(())
             }
-            TransactionResponse::Error { message } => {
-                Err(DatabaseError::TransactionAborted {
-                    transaction_id: self.transaction_id,
-                    reason: message,
-                })
-            }
-            _ => {
-                Err(DatabaseError::InternalError {
-                    component: "Transaction".to_string(),
-                    details: "Unexpected response to rollback".to_string(),
-                })
-            }
+            TransactionResponse::Error { message } => Err(DatabaseError::TransactionAborted {
+                transaction_id: self.transaction_id,
+                reason: message,
+            }),
+            _ => Err(DatabaseError::InternalError {
+                component: "Transaction".to_string(),
+                details: "Unexpected response to rollback".to_string(),
+            }),
         }
     }
 }
@@ -436,7 +435,10 @@ mod tests {
         let deserialized: TransactionRequest = bincode::deserialize(&serialized).unwrap();
 
         match deserialized {
-            TransactionRequest::Begin { transaction_id, isolation_level } => {
+            TransactionRequest::Begin {
+                transaction_id,
+                isolation_level,
+            } => {
                 assert_eq!(transaction_id, 123);
                 assert_eq!(isolation_level, IsolationLevel::ReadCommitted);
             }
@@ -579,7 +581,6 @@ mod property_tests {
     }
 }
 
-
 #[cfg(test)]
 mod integration_tests {
     use super::*;
@@ -591,7 +592,7 @@ mod integration_tests {
     fn test_transaction_api_structure() {
         // Verify that Transaction has the expected public API
         // This is a compile-time check that the API is correctly structured
-        
+
         // Transaction should have these methods:
         // - transaction_id() -> TransactionId
         // - execute(&mut self, sql: &str) -> Result<ExecuteResult>
@@ -600,7 +601,7 @@ mod integration_tests {
         // - query_with_params(&mut self, sql: &str, params: &[Value]) -> Result<QueryResult>
         // - commit(self) -> Result<()>
         // - rollback(self) -> Result<()>
-        
+
         // This test just verifies the API compiles correctly
     }
 
@@ -625,7 +626,10 @@ mod integration_tests {
             let deserialized: TransactionRequest = bincode::deserialize(&serialized).unwrap();
 
             match deserialized {
-                TransactionRequest::Begin { isolation_level: deser_level, .. } => {
+                TransactionRequest::Begin {
+                    isolation_level: deser_level,
+                    ..
+                } => {
                     assert_eq!(level, deser_level);
                 }
                 _ => panic!("Wrong variant"),

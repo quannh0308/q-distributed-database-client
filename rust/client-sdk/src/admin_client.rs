@@ -8,8 +8,8 @@ use crate::connection::ConnectionManager;
 use crate::error::DatabaseError;
 use crate::protocol::{AdminRequest, AdminResponse, Request, Response};
 use crate::types::{
-    ClusterMetrics, ClusterNodeInfo, NodeHealthMetrics, NodeId, Permission, Role, UserId,
-    UserInfo, UserUpdate,
+    ClusterMetrics, ClusterNodeInfo, NodeHealthMetrics, NodeId, Permission, Role, UserId, UserInfo,
+    UserUpdate,
 };
 use crate::Result;
 use std::sync::Arc;
@@ -73,11 +73,10 @@ impl AdminClient {
 
         // Build admin request
         let request = Request::Admin(AdminRequest::ListNodes);
-        let payload = bincode::serialize(&request).map_err(|e| {
-            DatabaseError::SerializationError {
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
                 message: format!("Failed to serialize request: {}", e),
-            }
-        })?;
+            })?;
 
         // Send request
         let response = connection
@@ -118,11 +117,10 @@ impl AdminClient {
         let _token = self.auth_manager.get_valid_token().await?;
 
         let request = Request::Admin(AdminRequest::GetNodeHealth { node_id });
-        let payload = bincode::serialize(&request).map_err(|e| {
-            DatabaseError::SerializationError {
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
                 message: format!("Failed to serialize request: {}", e),
-            }
-        })?;
+            })?;
 
         let response = connection
             .connection_mut()
@@ -163,11 +161,10 @@ impl AdminClient {
             host: hostname.to_string(),
             port,
         });
-        let payload = bincode::serialize(&request).map_err(|e| {
-            DatabaseError::SerializationError {
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
                 message: format!("Failed to serialize request: {}", e),
-            }
-        })?;
+            })?;
 
         let response = connection
             .connection_mut()
@@ -202,11 +199,10 @@ impl AdminClient {
         let _token = self.auth_manager.get_valid_token().await?;
 
         let request = Request::Admin(AdminRequest::RemoveNode { node_id });
-        let payload = bincode::serialize(&request).map_err(|e| {
-            DatabaseError::SerializationError {
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
                 message: format!("Failed to serialize request: {}", e),
-            }
-        })?;
+            })?;
 
         let response = connection
             .connection_mut()
@@ -240,11 +236,10 @@ impl AdminClient {
         let _token = self.auth_manager.get_valid_token().await?;
 
         let request = Request::Admin(AdminRequest::RebalancePartitions);
-        let payload = bincode::serialize(&request).map_err(|e| {
-            DatabaseError::SerializationError {
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
                 message: format!("Failed to serialize request: {}", e),
-            }
-        })?;
+            })?;
 
         let response = connection
             .connection_mut()
@@ -279,11 +274,10 @@ impl AdminClient {
         let _token = self.auth_manager.get_valid_token().await?;
 
         let request = Request::Admin(AdminRequest::GetClusterMetrics);
-        let payload = bincode::serialize(&request).map_err(|e| {
-            DatabaseError::SerializationError {
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
                 message: format!("Failed to serialize request: {}", e),
-            }
-        })?;
+            })?;
 
         let response = connection
             .connection_mut()
@@ -330,11 +324,10 @@ impl AdminClient {
             password: password.to_string(),
             roles: roles.to_vec(),
         });
-        let payload = bincode::serialize(&request).map_err(|e| {
-            DatabaseError::SerializationError {
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
                 message: format!("Failed to serialize request: {}", e),
-            }
-        })?;
+            })?;
 
         let response = connection
             .connection_mut()
@@ -368,11 +361,10 @@ impl AdminClient {
         let _token = self.auth_manager.get_valid_token().await?;
 
         let request = Request::Admin(AdminRequest::ListUsers);
-        let payload = bincode::serialize(&request).map_err(|e| {
-            DatabaseError::SerializationError {
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
                 message: format!("Failed to serialize request: {}", e),
-            }
-        })?;
+            })?;
 
         let response = connection
             .connection_mut()
@@ -406,11 +398,10 @@ impl AdminClient {
         let _token = self.auth_manager.get_valid_token().await?;
 
         let request = Request::Admin(AdminRequest::UpdateUser { user_id, update });
-        let payload = bincode::serialize(&request).map_err(|e| {
-            DatabaseError::SerializationError {
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
                 message: format!("Failed to serialize request: {}", e),
-            }
-        })?;
+            })?;
 
         let response = connection
             .connection_mut()
@@ -444,11 +435,10 @@ impl AdminClient {
         let _token = self.auth_manager.get_valid_token().await?;
 
         let request = Request::Admin(AdminRequest::DeleteUser { user_id });
-        let payload = bincode::serialize(&request).map_err(|e| {
-            DatabaseError::SerializationError {
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
                 message: format!("Failed to serialize request: {}", e),
-            }
-        })?;
+            })?;
 
         let response = connection
             .connection_mut()
@@ -485,11 +475,10 @@ impl AdminClient {
             user_id,
             permission,
         });
-        let payload = bincode::serialize(&request).map_err(|e| {
-            DatabaseError::SerializationError {
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
                 message: format!("Failed to serialize request: {}", e),
-            }
-        })?;
+            })?;
 
         let response = connection
             .connection_mut()
@@ -526,11 +515,10 @@ impl AdminClient {
             user_id,
             permission,
         });
-        let payload = bincode::serialize(&request).map_err(|e| {
-            DatabaseError::SerializationError {
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
                 message: format!("Failed to serialize request: {}", e),
-            }
-        })?;
+            })?;
 
         let response = connection
             .connection_mut()
@@ -568,12 +556,12 @@ fn parse_host_port(host: &str) -> Result<(&str, u16)> {
     }
 
     let hostname = parts[0];
-    let port = parts[1].parse::<u16>().map_err(|_| {
-        DatabaseError::InternalError {
+    let port = parts[1]
+        .parse::<u16>()
+        .map_err(|_| DatabaseError::InternalError {
             component: "AdminClient".to_string(),
             details: format!("Invalid port number: {}", parts[1]),
-        }
-    })?;
+        })?;
 
     Ok((hostname, port))
 }
@@ -734,11 +722,7 @@ mod tests {
 
     #[test]
     fn test_node_role_variants() {
-        let roles = vec![
-            NodeRole::Primary,
-            NodeRole::Replica,
-            NodeRole::Coordinator,
-        ];
+        let roles = vec![NodeRole::Primary, NodeRole::Replica, NodeRole::Coordinator];
 
         assert_eq!(roles.len(), 3);
         assert_eq!(roles[0], NodeRole::Primary);

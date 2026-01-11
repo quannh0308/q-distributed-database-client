@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("1. Listing cluster nodes...");
     let nodes = client.admin().list_nodes().await?;
     println!("   Found {} nodes:", nodes.len());
-    
+
     for node in &nodes {
         println!(
             "     - Node {}: {}:{} ({:?}, {:?})",
@@ -64,7 +64,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("     Total queries: {}", metrics.total_queries);
     println!("     Average latency: {:.2}ms", metrics.average_latency_ms);
     println!("     Error rate: {:.4}%", metrics.error_rate * 100.0);
-    println!("     Storage usage: {:.2} GB", metrics.storage_usage_bytes as f64 / (1024.0 * 1024.0 * 1024.0));
+    println!(
+        "     Storage usage: {:.2} GB",
+        metrics.storage_usage_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
+    );
     println!();
 
     // ========================================================================
@@ -76,7 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("4. Listing existing users...");
     let users = client.admin().list_users().await?;
     println!("   Found {} users:", users.len());
-    
+
     for user in &users {
         println!(
             "     - {} (ID: {}): {:?}",
@@ -113,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("8. Listing users after creation...");
     let users = client.admin().list_users().await?;
     println!("   Found {} users:", users.len());
-    
+
     for user in &users {
         println!(
             "     - {} (ID: {}): {:?}, Permissions: {:?}",
@@ -128,7 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         password: None,
         roles: Some(vec![Role::User, Role::ReadOnly]),
     };
-    
+
     client.admin().update_user(user_id, update).await?;
     println!("   ✓ User updated\n");
 
@@ -136,7 +139,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("10. Verifying user update...");
     let users = client.admin().list_users().await?;
     if let Some(user) = users.iter().find(|u| u.user_id == user_id) {
-        println!("   User '{}' now has roles: {:?}\n", user.username, user.roles);
+        println!(
+            "   User '{}' now has roles: {:?}\n",
+            user.username, user.roles
+        );
     }
 
     // Revoke a permission
@@ -156,7 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("13. Verifying user deletion...");
     let users = client.admin().list_users().await?;
     let user_exists = users.iter().any(|u| u.user_id == user_id);
-    
+
     if user_exists {
         println!("   ⚠ User still exists (unexpected)");
     } else {
@@ -169,7 +175,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== ADVANCED CLUSTER OPERATIONS ===\n");
 
     // Note: These operations require appropriate cluster setup and permissions
-    
+
     println!("14. Demonstrating cluster operations...");
     println!("   Note: The following operations require a multi-node cluster\n");
 
@@ -199,6 +205,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  • The SDK automatically manages connection lifecycle");
     println!("  • Admin operations require appropriate permissions");
     println!("  • Cluster operations work seamlessly across multiple nodes");
-    
+
     Ok(())
 }

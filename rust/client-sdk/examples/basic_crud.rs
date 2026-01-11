@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 3: INSERT - Add records
     println!("3. Inserting users...");
-    
+
     client
         .data()
         .execute_with_params(
@@ -75,15 +75,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 4: READ - Query records
     println!("4. Querying all users...");
-    let result = client.data().query("SELECT * FROM users ORDER BY id").await?;
+    let result = client
+        .data()
+        .query("SELECT * FROM users ORDER BY id")
+        .await?;
     println!("   Found {} users:", result.rows.len());
-    
+
     for row in &result.rows {
         let id = row.get_i64(0)?;
         let name = row.get_string(1)?;
         let email = row.get_string(2)?;
         let age = row.get_i64(3)?;
-        println!("     - ID: {}, Name: {}, Email: {}, Age: {}", id, name, email, age);
+        println!(
+            "     - ID: {}, Name: {}, Email: {}, Age: {}",
+            id, name, email, age
+        );
     }
     println!();
 
@@ -97,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .await?;
     println!("   Found {} users:", result.rows.len());
-    
+
     for row in &result.rows {
         let name = row.get_string(1)?;
         let age = row.get_i64(3)?;
@@ -122,9 +128,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Verify the update
     let result = client
         .data()
-        .query_with_params("SELECT name, email FROM users WHERE id = ?", &[Value::Int(1)])
+        .query_with_params(
+            "SELECT name, email FROM users WHERE id = ?",
+            &[Value::Int(1)],
+        )
         .await?;
-    
+
     if let Some(row) = result.rows.first() {
         let name = row.get_string(0)?;
         let email = row.get_string(1)?;

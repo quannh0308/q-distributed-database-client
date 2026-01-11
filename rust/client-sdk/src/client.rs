@@ -104,25 +104,27 @@ impl Client {
             }
         }
 
-        tracing::info!("Connecting to database cluster with {} hosts", config.hosts.len());
+        tracing::info!(
+            "Connecting to database cluster with {} hosts",
+            config.hosts.len()
+        );
 
         // 4. Create MetricsCollector
         let metrics = Arc::new(MetricsCollector::new());
 
         // 5. Create ConnectionManager
-        let connection_manager = Arc::new(
-            ConnectionManager::new(config.clone())
-                .with_metrics(Arc::clone(&metrics))
-        );
+        let connection_manager =
+            Arc::new(ConnectionManager::new(config.clone()).with_metrics(Arc::clone(&metrics)));
 
         // 6. Create AuthenticationManager with credentials
         let credentials = if let Some(password) = &config.password {
             Credentials::new(config.username.clone(), password.clone())
         } else if let Some(cert_data) = &config.certificate {
-            Credentials::with_username(config.username.clone())
-                .with_certificate(crate::auth::Certificate {
+            Credentials::with_username(config.username.clone()).with_certificate(
+                crate::auth::Certificate {
                     data: cert_data.clone(),
-                })
+                },
+            )
         } else {
             return Err(DatabaseError::AuthenticationFailed {
                 reason: "No password or certificate provided".to_string(),
@@ -161,10 +163,8 @@ impl Client {
         );
 
         // 9. Create AdminClient with shared managers
-        let admin_client = AdminClient::new(
-            Arc::clone(&connection_manager),
-            Arc::clone(&auth_manager),
-        );
+        let admin_client =
+            AdminClient::new(Arc::clone(&connection_manager), Arc::clone(&auth_manager));
 
         tracing::info!("Client connected successfully");
 
@@ -191,8 +191,8 @@ impl Client {
             LogLevel::Error => "error",
         };
 
-        let env_filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new(level_filter));
+        let env_filter =
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level_filter));
 
         match log_config.format {
             LogFormat::Json => {
@@ -272,19 +272,13 @@ impl Client {
     /// Returns an error if health check fails for all nodes
     pub async fn health_check(&self) -> Result<ClusterHealth> {
         tracing::debug!("Performing cluster health check");
-        
+
         // Query health from all nodes via ConnectionManager
-        let node_healths = self
-            .connection_manager
-            .health_check_all_nodes()
-            .await?;
+        let node_healths = self.connection_manager.health_check_all_nodes().await?;
 
         // Aggregate results into cluster health
         let total_nodes = node_healths.len();
-        let healthy_nodes = node_healths
-            .iter()
-            .filter(|h| h.is_healthy)
-            .count();
+        let healthy_nodes = node_healths.iter().filter(|h| h.is_healthy).count();
 
         tracing::info!(
             "Health check complete: {}/{} nodes healthy",
@@ -312,7 +306,7 @@ impl Client {
     /// Note: Logout errors are logged but don't prevent disconnection.
     pub async fn disconnect(self) -> Result<()> {
         tracing::info!("Disconnecting from database cluster");
-        
+
         // 1. Logout to invalidate token (best effort)
         let conn = self.connection_manager.get_connection().await?;
         if let Err(e) = self.auth_manager.logout().await {

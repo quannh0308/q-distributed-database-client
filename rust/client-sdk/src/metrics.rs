@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Percentile latency statistics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Percentiles {
     /// 50th percentile (median) latency in milliseconds
     pub p50: f64,
@@ -19,18 +19,8 @@ pub struct Percentiles {
     pub p99: f64,
 }
 
-impl Default for Percentiles {
-    fn default() -> Self {
-        Self {
-            p50: 0.0,
-            p95: 0.0,
-            p99: 0.0,
-        }
-    }
-}
-
 /// Operation metrics for tracking counts, success/error rates, and latencies
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OperationMetrics {
     /// Total number of operations
     pub total_count: u64,
@@ -39,6 +29,7 @@ pub struct OperationMetrics {
     /// Number of failed operations
     pub error_count: u64,
     /// Minimum latency in milliseconds
+    #[serde(default = "default_min_latency")]
     pub min_latency_ms: f64,
     /// Maximum latency in milliseconds
     pub max_latency_ms: f64,
@@ -48,22 +39,12 @@ pub struct OperationMetrics {
     pub percentiles: Percentiles,
 }
 
-impl Default for OperationMetrics {
-    fn default() -> Self {
-        Self {
-            total_count: 0,
-            success_count: 0,
-            error_count: 0,
-            min_latency_ms: f64::MAX,
-            max_latency_ms: 0.0,
-            avg_latency_ms: 0.0,
-            percentiles: Percentiles::default(),
-        }
-    }
+fn default_min_latency() -> f64 {
+    f64::MAX
 }
 
 /// Connection pool metrics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConnectionMetrics {
     /// Number of active connections
     pub active_connections: u32,
@@ -77,20 +58,8 @@ pub struct ConnectionMetrics {
     pub connection_timeouts: u64,
 }
 
-impl Default for ConnectionMetrics {
-    fn default() -> Self {
-        Self {
-            active_connections: 0,
-            idle_connections: 0,
-            total_connections: 0,
-            connection_errors: 0,
-            connection_timeouts: 0,
-        }
-    }
-}
-
 /// Public metrics API exposed to clients
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ClientMetrics {
     /// Query operation metrics
     pub query_metrics: OperationMetrics,
@@ -102,18 +71,6 @@ pub struct ClientMetrics {
     pub auth_metrics: OperationMetrics,
     /// Connection pool metrics
     pub connection_metrics: ConnectionMetrics,
-}
-
-impl Default for ClientMetrics {
-    fn default() -> Self {
-        Self {
-            query_metrics: OperationMetrics::default(),
-            execute_metrics: OperationMetrics::default(),
-            transaction_metrics: OperationMetrics::default(),
-            auth_metrics: OperationMetrics::default(),
-            connection_metrics: ConnectionMetrics::default(),
-        }
-    }
 }
 
 /// Internal operation tracker for calculating metrics
@@ -145,7 +102,7 @@ impl OperationTracker {
 
         let mut latencies = self.latencies.write().await;
         latencies.push(latency_ms);
-        
+
         // Keep only last 1000 latencies to prevent unbounded growth
         if latencies.len() > 1000 {
             let excess = latencies.len() - 1000;
@@ -159,7 +116,7 @@ impl OperationTracker {
         let error_count = self.error_count.load(Ordering::SeqCst);
 
         let latencies = self.latencies.read().await;
-        
+
         if latencies.is_empty() {
             return OperationMetrics {
                 total_count,
@@ -177,7 +134,7 @@ impl OperationTracker {
         // Calculate percentiles
         let mut sorted_latencies = latencies.clone();
         sorted_latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        
+
         let p50_idx = (sorted_latencies.len() as f64 * 0.50) as usize;
         let p95_idx = (sorted_latencies.len() as f64 * 0.95) as usize;
         let p99_idx = (sorted_latencies.len() as f64 * 0.99) as usize;
@@ -242,12 +199,7 @@ impl MetricsCollector {
     }
 
     /// Updates connection pool metrics
-    pub async fn update_connection_metrics(
-        &self,
-        active: u32,
-        idle: u32,
-        total: u32,
-    ) {
+    pub async fn update_connection_metrics(&self, active: u32, idle: u32, total: u32) {
         let mut metrics = self.connection_metrics.write().await;
         metrics.active_connections = active;
         metrics.idle_connections = idle;
@@ -292,7 +244,7 @@ mod tests {
     async fn test_metrics_collector_creation() {
         let collector = MetricsCollector::new();
         let metrics = collector.get_metrics().await;
-        
+
         assert_eq!(metrics.query_metrics.total_count, 0);
         assert_eq!(metrics.execute_metrics.total_count, 0);
         assert_eq!(metrics.transaction_metrics.total_count, 0);
@@ -302,11 +254,11 @@ mod tests {
     #[tokio::test]
     async fn test_record_query() {
         let collector = MetricsCollector::new();
-        
+
         collector.record_query(true, 10.5).await;
         collector.record_query(true, 15.2).await;
         collector.record_query(false, 20.0).await;
-        
+
         let metrics = collector.get_metrics().await;
         assert_eq!(metrics.query_metrics.total_count, 3);
         assert_eq!(metrics.query_metrics.success_count, 2);
@@ -317,10 +269,10 @@ mod tests {
     #[tokio::test]
     async fn test_record_execute() {
         let collector = MetricsCollector::new();
-        
+
         collector.record_execute(true, 5.0).await;
         collector.record_execute(true, 10.0).await;
-        
+
         let metrics = collector.get_metrics().await;
         assert_eq!(metrics.execute_metrics.total_count, 2);
         assert_eq!(metrics.execute_metrics.success_count, 2);
@@ -330,9 +282,9 @@ mod tests {
     #[tokio::test]
     async fn test_record_transaction() {
         let collector = MetricsCollector::new();
-        
+
         collector.record_transaction(true, 25.0).await;
-        
+
         let metrics = collector.get_metrics().await;
         assert_eq!(metrics.transaction_metrics.total_count, 1);
         assert_eq!(metrics.transaction_metrics.success_count, 1);
@@ -341,10 +293,10 @@ mod tests {
     #[tokio::test]
     async fn test_record_auth_attempt() {
         let collector = MetricsCollector::new();
-        
+
         collector.record_auth_attempt(true, 100.0).await;
         collector.record_auth_attempt(false, 50.0).await;
-        
+
         let metrics = collector.get_metrics().await;
         assert_eq!(metrics.auth_metrics.total_count, 2);
         assert_eq!(metrics.auth_metrics.success_count, 1);
@@ -354,9 +306,9 @@ mod tests {
     #[tokio::test]
     async fn test_update_connection_metrics() {
         let collector = MetricsCollector::new();
-        
+
         collector.update_connection_metrics(5, 10, 15).await;
-        
+
         let metrics = collector.get_metrics().await;
         assert_eq!(metrics.connection_metrics.active_connections, 5);
         assert_eq!(metrics.connection_metrics.idle_connections, 10);
@@ -366,10 +318,10 @@ mod tests {
     #[tokio::test]
     async fn test_record_connection_error() {
         let collector = MetricsCollector::new();
-        
+
         collector.record_connection_error().await;
         collector.record_connection_error().await;
-        
+
         let metrics = collector.get_metrics().await;
         assert_eq!(metrics.connection_metrics.connection_errors, 2);
     }
@@ -377,9 +329,9 @@ mod tests {
     #[tokio::test]
     async fn test_record_connection_timeout() {
         let collector = MetricsCollector::new();
-        
+
         collector.record_connection_timeout().await;
-        
+
         let metrics = collector.get_metrics().await;
         assert_eq!(metrics.connection_metrics.connection_timeouts, 1);
     }
@@ -387,35 +339,44 @@ mod tests {
     #[tokio::test]
     async fn test_latency_percentiles() {
         let collector = MetricsCollector::new();
-        
+
         // Record latencies: 1, 2, 3, ..., 100
         for i in 1..=100 {
             collector.record_query(true, i as f64).await;
         }
-        
+
         let metrics = collector.get_metrics().await;
         assert_eq!(metrics.query_metrics.total_count, 100);
         assert_eq!(metrics.query_metrics.min_latency_ms, 1.0);
         assert_eq!(metrics.query_metrics.max_latency_ms, 100.0);
-        
+
         // Check percentiles are reasonable
-        assert!(metrics.query_metrics.percentiles.p50 >= 40.0 && metrics.query_metrics.percentiles.p50 <= 60.0);
-        assert!(metrics.query_metrics.percentiles.p95 >= 90.0 && metrics.query_metrics.percentiles.p95 <= 100.0);
-        assert!(metrics.query_metrics.percentiles.p99 >= 95.0 && metrics.query_metrics.percentiles.p99 <= 100.0);
+        assert!(
+            metrics.query_metrics.percentiles.p50 >= 40.0
+                && metrics.query_metrics.percentiles.p50 <= 60.0
+        );
+        assert!(
+            metrics.query_metrics.percentiles.p95 >= 90.0
+                && metrics.query_metrics.percentiles.p95 <= 100.0
+        );
+        assert!(
+            metrics.query_metrics.percentiles.p99 >= 95.0
+                && metrics.query_metrics.percentiles.p99 <= 100.0
+        );
     }
 
     #[tokio::test]
     async fn test_latency_buffer_limit() {
         let collector = MetricsCollector::new();
-        
+
         // Record more than 1000 latencies
         for i in 1..=1500 {
             collector.record_query(true, i as f64).await;
         }
-        
+
         let metrics = collector.get_metrics().await;
         assert_eq!(metrics.query_metrics.total_count, 1500);
-        
+
         // Latency buffer should be capped at 1000
         let latencies = collector.query_tracker.latencies.read().await;
         assert_eq!(latencies.len(), 1000);

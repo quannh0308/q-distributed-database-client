@@ -68,12 +68,11 @@ impl ResultStream {
         match message.message_type {
             MessageType::Data => {
                 // Parse row data
-                let values: Vec<Value> =
-                    bincode::deserialize(&message.payload).map_err(|e| {
-                        DatabaseError::SerializationError {
-                            message: format!("Failed to deserialize row data: {}", e),
-                        }
-                    })?;
+                let values: Vec<Value> = bincode::deserialize(&message.payload).map_err(|e| {
+                    DatabaseError::SerializationError {
+                        message: format!("Failed to deserialize row data: {}", e),
+                    }
+                })?;
                 Ok(Some(Row::new(self.columns.clone(), values)))
             }
             MessageType::Ack => {
@@ -142,9 +141,10 @@ impl BatchContext {
         };
 
         // Serialize request
-        let payload = bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
-            message: format!("Failed to serialize batch request: {}", e),
-        })?;
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
+                message: format!("Failed to serialize batch request: {}", e),
+            })?;
 
         // Send request and receive response
         let response = self
@@ -231,7 +231,7 @@ impl DataClient {
     pub async fn execute_with_params(&self, sql: &str, params: &[Value]) -> Result<ExecuteResult> {
         tracing::debug!("Executing SQL: {}", sql);
         let start = std::time::Instant::now();
-        
+
         // Get connection from pool
         let mut conn = self.connection_manager.get_connection().await?;
 
@@ -247,9 +247,10 @@ impl DataClient {
         };
 
         // Serialize request
-        let payload = bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
-            message: format!("Failed to serialize execute request: {}", e),
-        })?;
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
+                message: format!("Failed to serialize execute request: {}", e),
+            })?;
 
         // Send request and receive response
         let response = conn
@@ -262,11 +263,9 @@ impl DataClient {
         let result = match response {
             Ok(resp) => {
                 // Parse response
-                let execute_response: ExecuteResponse =
-                    bincode::deserialize(&resp.payload).map_err(|e| {
-                        DatabaseError::SerializationError {
-                            message: format!("Failed to deserialize execute response: {}", e),
-                        }
+                let execute_response: ExecuteResponse = bincode::deserialize(&resp.payload)
+                    .map_err(|e| DatabaseError::SerializationError {
+                        message: format!("Failed to deserialize execute response: {}", e),
                     })?;
 
                 // Check for errors
@@ -279,7 +278,11 @@ impl DataClient {
                     })
                 } else {
                     self.metrics.record_execute(true, latency).await;
-                    tracing::debug!("Execute successful: {} rows affected ({}ms)", execute_response.rows_affected, latency);
+                    tracing::debug!(
+                        "Execute successful: {} rows affected ({}ms)",
+                        execute_response.rows_affected,
+                        latency
+                    );
                     Ok(ExecuteResult {
                         rows_affected: execute_response.rows_affected,
                         last_insert_id: execute_response.last_insert_id,
@@ -308,7 +311,7 @@ impl DataClient {
     pub async fn query_with_params(&self, sql: &str, params: &[Value]) -> Result<QueryResult> {
         tracing::debug!("Executing query: {}", sql);
         let start = std::time::Instant::now();
-        
+
         // Get connection from pool
         let mut conn = self.connection_manager.get_connection().await?;
 
@@ -325,9 +328,10 @@ impl DataClient {
         };
 
         // Serialize request
-        let payload = bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
-            message: format!("Failed to serialize query request: {}", e),
-        })?;
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
+                message: format!("Failed to serialize query request: {}", e),
+            })?;
 
         // Send request and receive response
         let response = conn
@@ -337,36 +341,42 @@ impl DataClient {
 
         let latency = start.elapsed().as_millis() as f64;
 
-        let result = match response {
-            Ok(resp) => {
-                // Parse response
-                let query_response: QueryResponse =
-                    bincode::deserialize(&resp.payload).map_err(|e| {
-                        DatabaseError::SerializationError {
+        let result =
+            match response {
+                Ok(resp) => {
+                    // Parse response
+                    let query_response: QueryResponse = bincode::deserialize(&resp.payload)
+                        .map_err(|e| DatabaseError::SerializationError {
                             message: format!("Failed to deserialize query response: {}", e),
-                        }
-                    })?;
+                        })?;
 
-                // Check for errors
-                if let Some(error) = query_response.error {
-                    self.metrics.record_query(false, latency).await;
-                    tracing::error!("Query failed: {}", error);
-                    Err(DatabaseError::InternalError {
-                        component: "DataClient".to_string(),
-                        details: error,
-                    })
-                } else {
-                    self.metrics.record_query(true, latency).await;
-                    tracing::debug!("Query successful: {} rows returned ({}ms)", query_response.rows.len(), latency);
-                    Ok(QueryResult::from_raw(query_response.columns, query_response.rows))
+                    // Check for errors
+                    if let Some(error) = query_response.error {
+                        self.metrics.record_query(false, latency).await;
+                        tracing::error!("Query failed: {}", error);
+                        Err(DatabaseError::InternalError {
+                            component: "DataClient".to_string(),
+                            details: error,
+                        })
+                    } else {
+                        self.metrics.record_query(true, latency).await;
+                        tracing::debug!(
+                            "Query successful: {} rows returned ({}ms)",
+                            query_response.rows.len(),
+                            latency
+                        );
+                        Ok(QueryResult::from_raw(
+                            query_response.columns,
+                            query_response.rows,
+                        ))
+                    }
                 }
-            }
-            Err(e) => {
-                self.metrics.record_query(false, latency).await;
-                tracing::error!("Query failed: {}", e);
-                Err(e)
-            }
-        };
+                Err(e) => {
+                    self.metrics.record_query(false, latency).await;
+                    tracing::error!("Query failed: {}", e);
+                    Err(e)
+                }
+            };
 
         // Return connection to pool
         self.connection_manager.return_connection(conn).await;
@@ -392,9 +402,10 @@ impl DataClient {
         };
 
         // Serialize request
-        let payload = bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
-            message: format!("Failed to serialize query request: {}", e),
-        })?;
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
+                message: format!("Failed to serialize query request: {}", e),
+            })?;
 
         // Get node_id before borrowing connection mutably
         let node_id = conn.node_id();
@@ -453,9 +464,10 @@ impl DataClient {
             auth_token: Some(token.signature.clone()),
         };
 
-        let payload = bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
-            message: format!("Failed to serialize prepare request: {}", e),
-        })?;
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
+                message: format!("Failed to serialize prepare request: {}", e),
+            })?;
 
         let response = conn
             .connection_mut()
@@ -503,13 +515,19 @@ impl DataClient {
     }
 
     /// Executes a query builder and returns the result
-    pub async fn query_builder(&self, builder: crate::query_builder::QueryBuilder) -> Result<QueryResult> {
+    pub async fn query_builder(
+        &self,
+        builder: crate::query_builder::QueryBuilder,
+    ) -> Result<QueryResult> {
         let (sql, params) = builder.build()?;
         self.query_with_params(&sql, &params).await
     }
 
     /// Executes a query builder for non-SELECT queries
-    pub async fn execute_builder(&self, builder: crate::query_builder::QueryBuilder) -> Result<ExecuteResult> {
+    pub async fn execute_builder(
+        &self,
+        builder: crate::query_builder::QueryBuilder,
+    ) -> Result<ExecuteResult> {
         let (sql, params) = builder.build()?;
         self.execute_with_params(&sql, &params).await
     }
@@ -547,9 +565,10 @@ impl DataClient {
             isolation_level: IsolationLevel::default(),
         };
 
-        let payload = bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
-            message: format!("Failed to serialize begin transaction request: {}", e),
-        })?;
+        let payload =
+            bincode::serialize(&request).map_err(|e| DatabaseError::SerializationError {
+                message: format!("Failed to serialize begin transaction request: {}", e),
+            })?;
 
         let response = connection
             .connection_mut()
@@ -561,11 +580,9 @@ impl DataClient {
         // 5. Verify success
         match response {
             Ok(resp) => {
-                let txn_response: TransactionResponse =
-                    bincode::deserialize(&resp.payload).map_err(|e| {
-                        DatabaseError::SerializationError {
-                            message: format!("Failed to deserialize transaction response: {}", e),
-                        }
+                let txn_response: TransactionResponse = bincode::deserialize(&resp.payload)
+                    .map_err(|e| DatabaseError::SerializationError {
+                        message: format!("Failed to deserialize transaction response: {}", e),
                     })?;
 
                 match txn_response {
@@ -684,8 +701,8 @@ mod tests {
 
     #[test]
     fn test_query_builder_integration() {
-        use crate::query_builder::{QueryBuilder, OrderDirection};
-        
+        use crate::query_builder::{OrderDirection, QueryBuilder};
+
         // Test that QueryBuilder can be built and produces valid SQL
         let (sql, params) = QueryBuilder::select(&["id", "name"])
             .from("users")
@@ -694,8 +711,11 @@ mod tests {
             .limit(10)
             .build()
             .unwrap();
-        
-        assert_eq!(sql, "SELECT id, name FROM users WHERE age > ? ORDER BY name ASC LIMIT 10");
+
+        assert_eq!(
+            sql,
+            "SELECT id, name FROM users WHERE age > ? ORDER BY name ASC LIMIT 10"
+        );
         assert_eq!(params.len(), 1);
         assert_eq!(params[0], Value::Int(18));
     }

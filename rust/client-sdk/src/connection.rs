@@ -137,32 +137,29 @@ impl Connection {
     /// Creates a new connection to the specified host
     pub async fn connect(host: &str, node_id: NodeId, timeout_ms: u64) -> Result<Self> {
         tracing::debug!("Connecting to {} (node {})", host, node_id);
-        
-        let socket = timeout(
-            Duration::from_millis(timeout_ms),
-            TcpStream::connect(host),
-        )
-        .await
-        .map_err(|_| {
-            tracing::error!("Connection timeout to {} after {}ms", host, timeout_ms);
-            DatabaseError::ConnectionTimeout {
-                host: host.to_string(),
-                timeout_ms,
-            }
-        })?
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::ConnectionRefused {
-                tracing::error!("Connection refused to {}", host);
-                DatabaseError::ConnectionRefused {
+
+        let socket = timeout(Duration::from_millis(timeout_ms), TcpStream::connect(host))
+            .await
+            .map_err(|_| {
+                tracing::error!("Connection timeout to {} after {}ms", host, timeout_ms);
+                DatabaseError::ConnectionTimeout {
                     host: host.to_string(),
+                    timeout_ms,
                 }
-            } else {
-                tracing::error!("Network error connecting to {}: {}", host, e);
-                DatabaseError::NetworkError {
-                    details: format!("Failed to connect to {}: {}", host, e),
+            })?
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::ConnectionRefused {
+                    tracing::error!("Connection refused to {}", host);
+                    DatabaseError::ConnectionRefused {
+                        host: host.to_string(),
+                    }
+                } else {
+                    tracing::error!("Network error connecting to {}: {}", host, e);
+                    DatabaseError::NetworkError {
+                        details: format!("Failed to connect to {}: {}", host, e),
+                    }
                 }
-            }
-        })?;
+            })?;
 
         // Enable TCP_NODELAY for low latency
         socket.set_nodelay(true).map_err(|e| {
@@ -213,9 +210,11 @@ impl Connection {
         })?;
 
         // Enable TCP_NODELAY for low latency
-        socket.set_nodelay(true).map_err(|e| DatabaseError::NetworkError {
-            details: format!("Failed to set TCP_NODELAY: {}", e),
-        })?;
+        socket
+            .set_nodelay(true)
+            .map_err(|e| DatabaseError::NetworkError {
+                details: format!("Failed to set TCP_NODELAY: {}", e),
+            })?;
 
         // Create codec with compression settings
         let codec = MessageCodec::with_compression(
@@ -277,19 +276,19 @@ impl Connection {
         self.send_message(request).await?;
 
         // Wait for response with timeout
-        timeout(
-            Duration::from_millis(timeout_ms),
-            self.receive_message(),
-        )
-        .await
-        .map_err(|_| DatabaseError::TimeoutError {
-            operation: "send_request".to_string(),
-            timeout_ms,
-        })?
+        timeout(Duration::from_millis(timeout_ms), self.receive_message())
+            .await
+            .map_err(|_| DatabaseError::TimeoutError {
+                operation: "send_request".to_string(),
+                timeout_ms,
+            })?
     }
 
     /// Authenticates the connection with the given authentication manager
-    pub async fn authenticate(&mut self, auth_manager: &crate::auth::AuthenticationManager) -> Result<()> {
+    pub async fn authenticate(
+        &mut self,
+        auth_manager: &crate::auth::AuthenticationManager,
+    ) -> Result<()> {
         let token = auth_manager.authenticate().await?;
         self.auth_token = Some(token);
         Ok(())
@@ -502,10 +501,10 @@ impl ConnectionPool {
     pub async fn get_connection(&self) -> Result<PooledConnection> {
         // Try to get an available connection
         let mut available = self.available.lock().await;
-        
+
         // Remove expired or idle connections
         available.retain(|conn| {
-            !conn.is_expired(self.config.max_lifetime_ms) 
+            !conn.is_expired(self.config.max_lifetime_ms)
                 && !conn.is_idle(self.config.idle_timeout_ms)
         });
 
@@ -565,8 +564,8 @@ impl ConnectionPool {
     /// Returns a connection to the pool
     pub async fn return_connection(&self, conn: PooledConnection) {
         // Check if connection is still valid
-        if conn.is_expired(self.config.max_lifetime_ms) 
-            || conn.is_idle(self.config.idle_timeout_ms) {
+        if conn.is_expired(self.config.max_lifetime_ms) || conn.is_idle(self.config.idle_timeout_ms)
+        {
             self.total_connections.fetch_sub(1, Ordering::SeqCst);
             return;
         }
@@ -620,22 +619,24 @@ impl ConnectionManager {
     pub async fn get_connection(&self) -> Result<PooledConnection> {
         tracing::debug!("Getting connection from pool");
         let start = std::time::Instant::now();
-        
+
         let result = self.pool.get_connection().await;
-        
+
         match &result {
             Ok(_) => {
                 let latency = start.elapsed().as_millis() as f64;
                 tracing::debug!("Connection acquired ({}ms)", latency);
-                
+
                 // Update connection metrics
                 let total = self.pool.total_connections();
-                self.metrics.update_connection_metrics(total, 0, total).await;
+                self.metrics
+                    .update_connection_metrics(total, 0, total)
+                    .await;
             }
             Err(e) => {
                 let latency = start.elapsed().as_millis() as f64;
                 tracing::error!("Failed to get connection: {} ({}ms)", e, latency);
-                
+
                 if matches!(e, DatabaseError::ConnectionTimeout { .. }) {
                     self.metrics.record_connection_timeout().await;
                 } else {
@@ -643,7 +644,7 @@ impl ConnectionManager {
                 }
             }
         }
-        
+
         result
     }
 
@@ -651,10 +652,12 @@ impl ConnectionManager {
     pub async fn return_connection(&self, conn: PooledConnection) {
         tracing::debug!("Returning connection to pool");
         self.pool.return_connection(conn).await;
-        
+
         // Update connection metrics
         let total = self.pool.total_connections();
-        self.metrics.update_connection_metrics(total, 0, total).await;
+        self.metrics
+            .update_connection_metrics(total, 0, total)
+            .await;
     }
 
     /// Performs health check on all nodes
@@ -663,7 +666,7 @@ impl ConnectionManager {
 
         for (idx, host) in self.config.hosts.iter().enumerate() {
             let node_id = idx as NodeId + 1;
-            
+
             // Try to connect and send a ping
             let health = match Connection::connect(host, node_id, self.config.timeout_ms).await {
                 Ok(mut conn) => {
@@ -710,7 +713,7 @@ impl ConnectionManager {
     /// Marks a node as unhealthy
     pub async fn mark_node_unhealthy(&self, node_id: NodeId) {
         tracing::warn!("Marking node {} as unhealthy", node_id);
-        
+
         let mut node_health = self.node_health.write().await;
         node_health
             .entry(node_id)
@@ -725,7 +728,7 @@ impl ConnectionManager {
     /// Marks a node as healthy
     pub async fn mark_node_healthy(&self, node_id: NodeId) {
         tracing::info!("Marking node {} as healthy", node_id);
-        
+
         let mut node_health = self.node_health.write().await;
         node_health
             .entry(node_id)
@@ -760,11 +763,12 @@ impl ConnectionManager {
                         delay.as_millis(),
                         e
                     );
-                    
+
                     tokio::time::sleep(delay).await;
-                    
+
                     // Calculate next delay with exponential backoff
-                    let next_delay_ms = (delay.as_millis() as f64 * retry_config.backoff_multiplier) as u64;
+                    let next_delay_ms =
+                        (delay.as_millis() as f64 * retry_config.backoff_multiplier) as u64;
                     delay = Duration::from_millis(next_delay_ms.min(retry_config.max_backoff_ms));
                 }
                 Err(e) => {
@@ -779,19 +783,19 @@ impl ConnectionManager {
     /// Disconnects all connections gracefully
     pub async fn disconnect(&self) {
         tracing::info!("Disconnecting all connections");
-        
+
         // Clear all available connections
         let mut available = self.pool.available.lock().await;
         let conn_count = available.len();
         available.clear();
-        
+
         // Reset connection count
         self.pool.total_connections.store(0, Ordering::SeqCst);
-        
+
         // Clear node health
         let mut node_health = self.node_health.write().await;
         node_health.clear();
-        
+
         tracing::info!("Disconnected {} connections", conn_count);
     }
 }
@@ -811,13 +815,22 @@ mod tests {
     #[test]
     fn test_protocol_select_best() {
         let protocols = vec![ProtocolType::TCP, ProtocolType::UDP];
-        assert_eq!(ProtocolType::select_best(&protocols), Some(ProtocolType::TCP));
+        assert_eq!(
+            ProtocolType::select_best(&protocols),
+            Some(ProtocolType::TCP)
+        );
 
         let protocols = vec![ProtocolType::TLS, ProtocolType::TCP, ProtocolType::UDP];
-        assert_eq!(ProtocolType::select_best(&protocols), Some(ProtocolType::TLS));
+        assert_eq!(
+            ProtocolType::select_best(&protocols),
+            Some(ProtocolType::TLS)
+        );
 
         let protocols = vec![ProtocolType::UDP];
-        assert_eq!(ProtocolType::select_best(&protocols), Some(ProtocolType::UDP));
+        assert_eq!(
+            ProtocolType::select_best(&protocols),
+            Some(ProtocolType::UDP)
+        );
 
         let protocols = vec![];
         assert_eq!(ProtocolType::select_best(&protocols), None);
@@ -959,7 +972,7 @@ mod property_tests {
     // Validates: Requirements 1.2
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_exponential_backoff_on_retry(
             initial_backoff in 50u64..200u64,
@@ -987,7 +1000,7 @@ mod property_tests {
                 // Allow tolerance for integer rounding and max backoff cap
                 let is_capped = expected_delays[i] == retry_config.max_backoff_ms;
                 let is_within_tolerance = (ratio - multiplier).abs() <= 0.05; // 5% tolerance for rounding
-                
+
                 prop_assert!(
                     is_capped || is_within_tolerance,
                     "Delay ratio {} should be approximately {} (delays: {:?})",
@@ -1004,7 +1017,7 @@ mod property_tests {
     // Validates: Requirements 1.8
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_protocol_selection_priority(
             include_tls in any::<bool>(),
@@ -1048,7 +1061,7 @@ mod property_tests {
     // Validates: Requirements 8.2
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_timeout_enforcement(
             timeout_ms in 10u64..100u64,
@@ -1081,7 +1094,7 @@ mod property_tests {
     // Validates: Requirements 8.3
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_structured_error_information(
             host in "[a-z]+:[0-9]{4}",
@@ -1101,7 +1114,7 @@ mod property_tests {
             // Verify error is serializable using bincode
             let serialized = bincode::serialize(&error);
             prop_assert!(serialized.is_ok(), "Error should be serializable");
-            
+
             // Verify we can get the bytes
             let bytes = serialized.unwrap();
             prop_assert!(!bytes.is_empty(), "Serialized bytes should not be empty");
@@ -1113,7 +1126,7 @@ mod property_tests {
     // Validates: Requirements 8.5
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_retry_exhaustion_returns_last_error(
             max_retries in 1u32..5u32,
@@ -1135,7 +1148,7 @@ mod property_tests {
 
                 let attempt = Arc::new(AtomicU32::new(0));
                 let attempt_clone = attempt.clone();
-                
+
                 let result: std::result::Result<(), DatabaseError> = manager.execute_with_retry(move || {
                     let current_attempt = attempt_clone.fetch_add(1, Ordering::SeqCst) + 1;
                     async move {
@@ -1149,7 +1162,7 @@ mod property_tests {
 
                 // Should fail after all retries
                 prop_assert!(result.is_err());
-                
+
                 // Should return the last error (attempt max_retries + 1)
                 if let Err(DatabaseError::ConnectionTimeout { host, timeout_ms }) = result {
                     let expected_attempts = max_retries + 1;
@@ -1168,7 +1181,7 @@ mod property_tests {
     // Validates: Requirements 8.6
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_custom_retry_policy_respect(
             max_retries in 0u32..5u32,
@@ -1191,7 +1204,7 @@ mod property_tests {
 
                 let attempt_count = Arc::new(AtomicU32::new(0));
                 let attempt_count_clone = attempt_count.clone();
-                
+
                 let result: std::result::Result<(), DatabaseError> = manager.execute_with_retry(move || {
                     attempt_count_clone.fetch_add(1, Ordering::SeqCst);
                     async move {
@@ -1204,7 +1217,7 @@ mod property_tests {
 
                 // Should fail
                 prop_assert!(result.is_err());
-                
+
                 // Should have attempted exactly max_retries + 1 times (initial + retries)
                 let final_count = attempt_count.load(Ordering::SeqCst);
                 prop_assert_eq!(final_count, max_retries + 1);
@@ -1214,46 +1227,46 @@ mod property_tests {
     }
 }
 
-    // ============================================================================
-    // INTEGRATION TESTS REQUIRED
-    // ============================================================================
-    //
-    // The following property tests require a running database server and are
-    // designed as integration tests. See INTEGRATION_TESTS.md for details.
-    //
-    // Deferred Tests:
-    // - Property 1 (Task 1.1): Connection Establishment
-    //   Requires: Reachable test database hosts
-    //   Validates: Requirements 1.1
-    //
-    // - Property 5 (Task 1.2): Connection Reuse
-    //   Requires: Connection pool with real connections and timing verification
-    //   Validates: Requirements 1.5
-    //
-    // - Property 3 (Task 1.3): Load Distribution
-    //   Requires: Multiple healthy nodes and request tracking
-    //   Validates: Requirements 1.3
-    //
-    // - Property 4 (Task 1.4): Unhealthy Node Avoidance
-    //   Requires: Node health tracking with real connections
-    //   Validates: Requirements 1.4
-    //
-    // - Property 27 (Task 1.6): Retry with Exponential Backoff
-    //   Requires: Retryable errors from real operations and timing measurement
-    //   Validates: Requirements 8.1, 8.4
-    //
-    // - Property 6 (Task 1.7): Graceful Shutdown
-    //   Requires: Active connections to close and resource verification
-    //   Validates: Requirements 1.6
-    //   Status: COMPLETED (unit test implemented)
-    //
-    // Implementation Status:
-    // ✅ Unit tests: All passing (22 tests)
-    // ✅ Property tests (unit): Exponential backoff, Protocol selection
-    // ⏳ Property tests (integration): Deferred until test server available
-    //
-    // See INTEGRATION_TESTS.md for:
-    // - Test server implementation requirements
-    // - Detailed test strategies for each property
-    // - Setup and execution instructions
-    // ============================================================================
+// ============================================================================
+// INTEGRATION TESTS REQUIRED
+// ============================================================================
+//
+// The following property tests require a running database server and are
+// designed as integration tests. See INTEGRATION_TESTS.md for details.
+//
+// Deferred Tests:
+// - Property 1 (Task 1.1): Connection Establishment
+//   Requires: Reachable test database hosts
+//   Validates: Requirements 1.1
+//
+// - Property 5 (Task 1.2): Connection Reuse
+//   Requires: Connection pool with real connections and timing verification
+//   Validates: Requirements 1.5
+//
+// - Property 3 (Task 1.3): Load Distribution
+//   Requires: Multiple healthy nodes and request tracking
+//   Validates: Requirements 1.3
+//
+// - Property 4 (Task 1.4): Unhealthy Node Avoidance
+//   Requires: Node health tracking with real connections
+//   Validates: Requirements 1.4
+//
+// - Property 27 (Task 1.6): Retry with Exponential Backoff
+//   Requires: Retryable errors from real operations and timing measurement
+//   Validates: Requirements 8.1, 8.4
+//
+// - Property 6 (Task 1.7): Graceful Shutdown
+//   Requires: Active connections to close and resource verification
+//   Validates: Requirements 1.6
+//   Status: COMPLETED (unit test implemented)
+//
+// Implementation Status:
+// ✅ Unit tests: All passing (22 tests)
+// ✅ Property tests (unit): Exponential backoff, Protocol selection
+// ⏳ Property tests (integration): Deferred until test server available
+//
+// See INTEGRATION_TESTS.md for:
+// - Test server implementation requirements
+// - Detailed test strategies for each property
+// - Setup and execution instructions
+// ============================================================================

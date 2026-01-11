@@ -4,7 +4,7 @@
 //! and credential management.
 
 use crate::error::DatabaseError;
-use crate::types::{UserId, Role};
+use crate::types::{Role, UserId};
 use crate::Result;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -223,11 +223,12 @@ impl AuthenticationManager {
         // Get current token and clone the necessary data
         let (user_id, roles) = {
             let token_guard = self.token.read().await;
-            let current_token = token_guard.as_ref().ok_or_else(|| {
-                DatabaseError::AuthenticationFailed {
-                    reason: "No token to refresh".to_string(),
-                }
-            })?;
+            let current_token =
+                token_guard
+                    .as_ref()
+                    .ok_or_else(|| DatabaseError::AuthenticationFailed {
+                        reason: "No token to refresh".to_string(),
+                    })?;
 
             // Check if token is still valid
             if current_token.is_expired() {
@@ -259,11 +260,12 @@ impl AuthenticationManager {
     pub async fn logout(&self) -> Result<()> {
         // Get current token
         let token_guard = self.token.read().await;
-        let _current_token = token_guard.as_ref().ok_or_else(|| {
-            DatabaseError::AuthenticationFailed {
-                reason: "No token to logout".to_string(),
-            }
-        })?;
+        let _current_token =
+            token_guard
+                .as_ref()
+                .ok_or_else(|| DatabaseError::AuthenticationFailed {
+                    reason: "No token to logout".to_string(),
+                })?;
         drop(token_guard);
 
         // TODO: Send logout request to server
@@ -441,7 +443,6 @@ mod tests {
     }
 }
 
-
 // Property-Based Tests
 #[cfg(test)]
 mod property_tests {
@@ -467,16 +468,12 @@ mod property_tests {
     // Strategy for generating valid AuthToken
     fn auth_token_strategy() -> impl Strategy<Value = AuthToken> {
         (
-            any::<u64>(),                    // user_id
+            any::<u64>(), // user_id
             prop::collection::vec(
-                prop_oneof![
-                    Just(Role::Admin),
-                    Just(Role::User),
-                    Just(Role::ReadOnly),
-                ],
+                prop_oneof![Just(Role::Admin), Just(Role::User), Just(Role::ReadOnly),],
                 1..5,
-            ),                               // roles
-            -86400i64..86400i64,             // expiration offset in seconds (-1 day to +1 day)
+            ), // roles
+            -86400i64..86400i64, // expiration offset in seconds (-1 day to +1 day)
             prop::collection::vec(any::<u8>(), 32..64), // signature
         )
             .prop_map(|(user_id, roles, expiration_offset, signature)| {
@@ -490,7 +487,7 @@ mod property_tests {
     // Validates: Requirements 2.2
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_auth_token_structure(token in auth_token_strategy()) {
             // Verify all required fields are present and have correct types
@@ -498,7 +495,7 @@ mod property_tests {
             prop_assert!(!token.roles.is_empty()); // roles exist and non-empty
             prop_assert!(token.expiration.timestamp() != 0); // expiration exists
             prop_assert!(!token.signature.is_empty()); // signature exists and non-empty
-            
+
             // Verify signature has reasonable length (at least 32 bytes)
             prop_assert!(token.signature.len() >= 32);
         }
@@ -509,26 +506,26 @@ mod property_tests {
     // Validates: Requirements 2.3
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_token_inclusion_in_requests(
             creds in credentials_strategy(),
         ) {
             tokio::runtime::Runtime::new().unwrap().block_on(async {
                 let manager = AuthenticationManager::new(creds, std::time::Duration::from_secs(3600));
-                
+
                 // Authenticate to get a token
                 let token = manager.authenticate().await.unwrap();
-                
+
                 // Verify the manager has stored the token
                 let stored_token = manager.get_token().await;
                 prop_assert!(stored_token.is_some());
-                
+
                 // Verify the stored token matches the returned token
                 let stored = stored_token.unwrap();
                 prop_assert_eq!(token.user_id, stored.user_id);
                 prop_assert_eq!(token.roles, stored.roles);
-                
+
                 Ok(())
             })?;
         }
@@ -539,7 +536,7 @@ mod property_tests {
     // Validates: Requirements 2.4
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_automatic_reauthentication(
             creds in credentials_strategy(),
@@ -547,10 +544,10 @@ mod property_tests {
             tokio::runtime::Runtime::new().unwrap().block_on(async {
                 // Create manager with very short TTL (1 second)
                 let manager = AuthenticationManager::new(creds, std::time::Duration::from_secs(1));
-                
+
                 // Authenticate to get initial token
                 let token1 = manager.authenticate().await.unwrap();
-                
+
                 // Manually expire the token by setting it to an expired time
                 {
                     let mut token_guard = manager.token.write().await;
@@ -558,14 +555,14 @@ mod property_tests {
                         token.expiration = Utc::now() - chrono::Duration::hours(1);
                     }
                 }
-                
+
                 // Call get_valid_token - should trigger re-authentication
                 let token2 = manager.get_valid_token().await.unwrap();
-                
+
                 // Verify we got a new token (different expiration)
                 prop_assert!(token2.expiration > token1.expiration);
                 prop_assert!(!token2.is_expired());
-                
+
                 Ok(())
             })?;
         }
@@ -576,26 +573,26 @@ mod property_tests {
     // Validates: Requirements 2.6
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_token_invalidation_on_logout(
             creds in credentials_strategy(),
         ) {
             tokio::runtime::Runtime::new().unwrap().block_on(async {
                 let manager = AuthenticationManager::new(creds, std::time::Duration::from_secs(3600));
-                
+
                 // Authenticate to get a token
                 manager.authenticate().await.unwrap();
-                
+
                 // Verify token exists
                 prop_assert!(manager.get_token().await.is_some());
-                
+
                 // Logout
                 manager.logout().await.unwrap();
-                
+
                 // Verify token is cleared
                 prop_assert!(manager.get_token().await.is_none());
-                
+
                 Ok(())
             })?;
         }
@@ -606,7 +603,7 @@ mod property_tests {
     // Validates: Requirements 2.8
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_token_ttl_respect(
             creds in credentials_strategy(),
@@ -614,14 +611,14 @@ mod property_tests {
         ) {
             tokio::runtime::Runtime::new().unwrap().block_on(async {
                 let manager = AuthenticationManager::new(creds, std::time::Duration::from_secs(ttl_seconds));
-                
+
                 // Authenticate to get a token
                 let token = manager.authenticate().await.unwrap();
-                
+
                 // Calculate expected expiration time
                 let now = Utc::now();
                 let expected_expiration = now + chrono::Duration::seconds(ttl_seconds as i64);
-                
+
                 // Verify token expiration is approximately correct (within 5 seconds tolerance)
                 let diff = (token.expiration - expected_expiration).num_seconds().abs();
                 prop_assert!(
@@ -630,10 +627,10 @@ mod property_tests {
                     token.expiration,
                     expected_expiration
                 );
-                
+
                 // Verify token is not expired
                 prop_assert!(!token.is_expired());
-                
+
                 // Verify time_until_expiration is approximately correct
                 let remaining = token.time_until_expiration();
                 let remaining_seconds = remaining.num_seconds();
@@ -643,7 +640,7 @@ mod property_tests {
                     remaining_seconds,
                     ttl_seconds
                 );
-                
+
                 Ok(())
             })?;
         }

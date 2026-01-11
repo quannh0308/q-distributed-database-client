@@ -328,7 +328,11 @@ impl ConnectionConfig {
     }
 
     /// Sets the credentials
-    pub fn with_credentials(mut self, username: impl Into<String>, password: impl Into<String>) -> Self {
+    pub fn with_credentials(
+        mut self,
+        username: impl Into<String>,
+        password: impl Into<String>,
+    ) -> Self {
         self.username = username.into();
         self.password = Some(password.into());
         self
@@ -660,13 +664,14 @@ pub struct FeatureNegotiation {
 // ============================================================================
 
 /// Log level enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum LogLevel {
     /// Trace level (most verbose)
     Trace,
     /// Debug level
     Debug,
     /// Info level
+    #[default]
     Info,
     /// Warn level
     Warn,
@@ -674,25 +679,14 @@ pub enum LogLevel {
     Error,
 }
 
-impl Default for LogLevel {
-    fn default() -> Self {
-        LogLevel::Info
-    }
-}
-
 /// Log format enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum LogFormat {
     /// Human-readable text format
+    #[default]
     Text,
     /// JSON format for structured logging
     Json,
-}
-
-impl Default for LogFormat {
-    fn default() -> Self {
-        LogFormat::Text
-    }
 }
 
 /// Logging configuration
@@ -784,7 +778,6 @@ impl TracingConfig {
         self
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1127,7 +1120,9 @@ mod tests {
             supported_features: features.clone(),
         };
         assert_eq!(negotiation.supported_features.len(), 2);
-        assert!(negotiation.supported_features.contains(&Feature::Compression));
+        assert!(negotiation
+            .supported_features
+            .contains(&Feature::Compression));
         assert!(negotiation.supported_features.contains(&Feature::Heartbeat));
     }
 
@@ -1135,13 +1130,13 @@ mod tests {
     fn test_feature_negotiation_intersection() {
         let client_features = vec![Feature::Compression, Feature::Heartbeat];
         let server_features = vec![Feature::Compression, Feature::Streaming];
-        
+
         // Calculate intersection
         let negotiated: Vec<Feature> = client_features
             .into_iter()
             .filter(|f| server_features.contains(f))
             .collect();
-        
+
         assert_eq!(negotiated.len(), 1);
         assert!(negotiated.contains(&Feature::Compression));
         assert!(!negotiated.contains(&Feature::Heartbeat));

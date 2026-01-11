@@ -120,13 +120,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Check Alice's balance within the transaction
         let result = txn
-            .query_with_params("SELECT balance FROM accounts WHERE id = ?", &[Value::Int(1)])
+            .query_with_params(
+                "SELECT balance FROM accounts WHERE id = ?",
+                &[Value::Int(1)],
+            )
             .await?;
-        
+
         if let Some(row) = result.rows.first() {
             let balance = row.get_i64(0)?;
             println!("  Alice's balance in transaction: ${}", balance);
-            
+
             // Decide to rollback because balance is negative
             if balance < 0 {
                 println!("  ⚠ Balance is negative, rolling back transaction...");
@@ -171,7 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("  ✓ Transaction automatically rolled back");
             }
         }
-        
+
         // Transaction is now rolled back, cannot commit
         println!();
     }
@@ -198,7 +201,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             &[Value::Int(100), Value::Int(1)],
         )
         .await?;
-        
+
         txn.execute_with_params(
             "UPDATE accounts SET balance = balance + ? WHERE id = ?",
             &[Value::Int(100), Value::Int(2)],
@@ -208,7 +211,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Query balances within transaction
         println!("  Checking balances within transaction...");
-        let result = txn.query("SELECT name, balance FROM accounts ORDER BY id").await?;
+        let result = txn
+            .query("SELECT name, balance FROM accounts ORDER BY id")
+            .await?;
         for row in &result.rows {
             let name = row.get_string(0)?;
             let balance = row.get_i64(1)?;

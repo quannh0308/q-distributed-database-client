@@ -333,7 +333,7 @@ impl QueryBuilder {
 
         // Collect all parameters in the correct order
         let mut all_params = Vec::new();
-        
+
         // For UPDATE: SET parameters come first, then WHERE parameters
         if self.query_type == QueryType::Update {
             for (_, value) in &self.updates {
@@ -438,7 +438,10 @@ impl QueryBuilder {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let sql = format!("INSERT INTO {} ({}) VALUES ({})", table, columns, placeholders);
+        let sql = format!(
+            "INSERT INTO {} ({}) VALUES ({})",
+            table, columns, placeholders
+        );
 
         Ok(sql)
     }
@@ -457,7 +460,11 @@ impl QueryBuilder {
             });
         }
 
-        let set_clauses: Vec<String> = self.updates.iter().map(|(col, _)| format!("{} = ?", col)).collect();
+        let set_clauses: Vec<String> = self
+            .updates
+            .iter()
+            .map(|(col, _)| format!("{} = ?", col))
+            .collect();
 
         let mut sql = format!("UPDATE {} SET {}", table, set_clauses.join(", "));
 
@@ -524,10 +531,7 @@ mod tests {
 
     #[test]
     fn test_select_all_columns() {
-        let (sql, params) = QueryBuilder::select(&[])
-            .from("users")
-            .build()
-            .unwrap();
+        let (sql, params) = QueryBuilder::select(&[]).from("users").build().unwrap();
 
         assert_eq!(sql, "SELECT * FROM users");
         assert!(params.is_empty());
@@ -695,7 +699,7 @@ mod property_tests {
     // **Validates: Requirements 4.1**
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_query_builder_produces_valid_sql(
             table in sql_identifier(),
@@ -705,7 +709,7 @@ mod property_tests {
             // Build a SELECT query
             let mut builder = QueryBuilder::select(&columns.iter().map(|s| s.as_str()).collect::<Vec<_>>())
                 .from(&table);
-            
+
             // Add random conditions
             for i in 0..num_conditions {
                 let condition = format!("col{} = ?", i);
@@ -716,26 +720,26 @@ mod property_tests {
                     builder = builder.and(&condition, value);
                 }
             }
-            
+
             // Build the query
             let result = builder.build();
             prop_assert!(result.is_ok());
-            
+
             let (sql, params) = result.unwrap();
-            
+
             // Verify SQL is not empty
             prop_assert!(!sql.is_empty());
-            
+
             // Verify SQL starts with SELECT
             prop_assert!(sql.starts_with("SELECT"));
-            
+
             // Verify SQL contains FROM
             prop_assert!(sql.contains("FROM"));
-            
+
             // Verify placeholder count matches parameter count
             let placeholder_count = sql.matches('?').count();
             prop_assert_eq!(placeholder_count, params.len());
-            
+
             // Verify parameter count matches number of conditions
             prop_assert_eq!(params.len(), num_conditions);
         }
@@ -745,7 +749,7 @@ mod property_tests {
     // **Validates: Requirements 4.2**
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_condition_logic_correctness(
             table in sql_identifier(),
@@ -754,7 +758,7 @@ mod property_tests {
         ) {
             // Build a query with AND and OR conditions
             let mut builder = QueryBuilder::select(&["*"]).from(&table);
-            
+
             // Add AND conditions
             for i in 0..num_and_conditions {
                 let condition = format!("col{} = ?", i);
@@ -765,31 +769,31 @@ mod property_tests {
                     builder = builder.and(&condition, value);
                 }
             }
-            
+
             // Add OR conditions
             for i in 0..num_or_conditions {
                 let condition = format!("or_col{} = ?", i);
                 let value = Value::Int(i as i64);
                 builder = builder.or(&condition, value);
             }
-            
+
             let (sql, params) = builder.build().unwrap();
-            
+
             // Verify AND operators are present
             if num_and_conditions > 1 {
                 let and_count = sql.matches(" AND ").count();
                 prop_assert_eq!(and_count, num_and_conditions - 1);
             }
-            
+
             // Verify OR operators are present
             if num_or_conditions > 0 {
                 let or_count = sql.matches(" OR ").count();
                 prop_assert_eq!(or_count, num_or_conditions);
             }
-            
+
             // Verify total parameter count
             prop_assert_eq!(params.len(), num_and_conditions + num_or_conditions);
-            
+
             // Verify WHERE clause exists
             prop_assert!(sql.contains("WHERE"));
         }
@@ -799,7 +803,7 @@ mod property_tests {
     // **Validates: Requirements 4.3**
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_sql_injection_prevention(
             table in sql_identifier(),
@@ -809,13 +813,13 @@ mod property_tests {
             let builder = QueryBuilder::select(&["*"])
                 .from(&table)
                 .where_clause("name = ?", Value::String(malicious_input.clone()));
-            
+
             let (sql, params) = builder.build().unwrap();
-            
+
             // Verify the malicious input is NOT in the SQL string
             // It should only be in the parameters
             prop_assert!(!sql.contains(&malicious_input));
-            
+
             // Verify the parameter contains the malicious input
             prop_assert_eq!(params.len(), 1);
             if let Value::String(s) = &params[0] {
@@ -823,12 +827,12 @@ mod property_tests {
             } else {
                 prop_assert!(false, "Expected String parameter");
             }
-            
+
             // Verify SQL structure is intact
             prop_assert!(sql.starts_with("SELECT"));
             prop_assert!(sql.contains("WHERE"));
             prop_assert!(sql.contains("= ?"));
-            
+
             // Verify only one placeholder
             prop_assert_eq!(sql.matches('?').count(), 1);
         }
@@ -837,7 +841,7 @@ mod property_tests {
     // Additional property test for INSERT queries
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_insert_query_valid(
             table in sql_identifier(),
@@ -848,20 +852,20 @@ mod property_tests {
             let min_len = columns.len().min(values.len());
             let columns = &columns[..min_len];
             let values = &values[..min_len];
-            
+
             let builder = QueryBuilder::insert_into(&table)
                 .columns(&columns.iter().map(|s| s.as_str()).collect::<Vec<_>>())
                 .values(values);
-            
+
             let result = builder.build();
             prop_assert!(result.is_ok());
-            
+
             let (sql, params) = result.unwrap();
-            
+
             // Verify SQL structure
             prop_assert!(sql.starts_with("INSERT INTO"));
             prop_assert!(sql.contains("VALUES"));
-            
+
             // Verify placeholder count matches value count
             let placeholder_count = sql.matches('?').count();
             prop_assert_eq!(placeholder_count, min_len);
@@ -872,7 +876,7 @@ mod property_tests {
     // Additional property test for UPDATE queries
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_update_query_valid(
             table in sql_identifier(),
@@ -882,27 +886,27 @@ mod property_tests {
         ) {
             // Ensure columns and values have the same length
             let min_len = set_columns.len().min(set_values.len());
-            
+
             let mut builder = QueryBuilder::update(&table);
-            
+
             // Add SET clauses
             for i in 0..min_len {
                 builder = builder.set(&set_columns[i], set_values[i].clone());
             }
-            
+
             // Add WHERE clause
             builder = builder.where_clause("id = ?", where_value);
-            
+
             let result = builder.build();
             prop_assert!(result.is_ok());
-            
+
             let (sql, params) = result.unwrap();
-            
+
             // Verify SQL structure
             prop_assert!(sql.starts_with("UPDATE"));
             prop_assert!(sql.contains("SET"));
             prop_assert!(sql.contains("WHERE"));
-            
+
             // Verify parameter count (SET values + WHERE value)
             prop_assert_eq!(params.len(), min_len + 1);
         }
@@ -911,14 +915,14 @@ mod property_tests {
     // Additional property test for DELETE queries
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_delete_query_valid(
             table in sql_identifier(),
             num_conditions in 1usize..5,
         ) {
             let mut builder = QueryBuilder::delete_from(&table);
-            
+
             // Add conditions
             for i in 0..num_conditions {
                 let condition = format!("col{} = ?", i);
@@ -929,16 +933,16 @@ mod property_tests {
                     builder = builder.and(&condition, value);
                 }
             }
-            
+
             let result = builder.build();
             prop_assert!(result.is_ok());
-            
+
             let (sql, params) = result.unwrap();
-            
+
             // Verify SQL structure
             prop_assert!(sql.starts_with("DELETE FROM"));
             prop_assert!(sql.contains("WHERE"));
-            
+
             // Verify parameter count
             prop_assert_eq!(params.len(), num_conditions);
         }

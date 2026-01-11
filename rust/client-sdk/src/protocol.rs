@@ -3,12 +3,12 @@
 //! This module implements the message protocol with bincode serialization,
 //! CRC32 checksum validation, and length-prefixed framing.
 
+use crate::connection::ProtocolType;
 use crate::error::DatabaseError;
 use crate::types::{
     ClusterMetrics, ClusterNodeInfo, NodeHealthMetrics, NodeId, Permission, Role, Timestamp,
     UserId, UserInfo, UserUpdate,
 };
-use crate::connection::ProtocolType;
 use crc32fast::Hasher;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -95,13 +95,13 @@ impl Message {
     /// The checksum is calculated over all fields except the checksum field itself.
     pub fn calculate_checksum(&self) -> u32 {
         let mut hasher = Hasher::new();
-        
+
         // Hash all fields except checksum
         hasher.update(&self.sender.to_le_bytes());
         hasher.update(&self.recipient.to_le_bytes());
         hasher.update(&self.sequence_number.to_le_bytes());
         hasher.update(&self.timestamp.to_le_bytes());
-        
+
         // Hash message type as a discriminant
         let type_discriminant = match self.message_type {
             MessageType::Ping => 0u8,
@@ -118,10 +118,10 @@ impl Message {
             MessageType::FeatureNegotiation => 11u8,
         };
         hasher.update(&[type_discriminant]);
-        
+
         // Hash payload
         hasher.update(&self.payload);
-        
+
         hasher.finalize()
     }
 
@@ -159,7 +159,7 @@ impl MessageCodec {
 
     /// Creates a new message codec with a custom maximum message size
     pub fn with_max_size(max_message_size: usize) -> Self {
-        Self { 
+        Self {
             max_message_size,
             compression_enabled: false,
             compression_threshold: 1024,
@@ -195,9 +195,10 @@ impl MessageCodec {
     /// Format: [compression_flag: u8][data: bytes]
     /// - compression_flag: 0 = uncompressed, 1 = LZ4 compressed
     pub fn encode(&self, message: &Message) -> Result<Vec<u8>, DatabaseError> {
-        let encoded = bincode::serialize(message).map_err(|e| DatabaseError::SerializationError {
-            message: format!("Failed to serialize message: {}", e),
-        })?;
+        let encoded =
+            bincode::serialize(message).map_err(|e| DatabaseError::SerializationError {
+                message: format!("Failed to serialize message: {}", e),
+            })?;
 
         // Check message size before compression
         if encoded.len() > self.max_message_size {
@@ -382,8 +383,8 @@ pub struct ProtocolNegotiation {
 impl ProtocolNegotiation {
     /// Creates a new protocol negotiation with the given supported protocols
     pub fn new(supported_protocols: Vec<ProtocolType>) -> Self {
-        let preferred_protocol = ProtocolType::select_best(&supported_protocols)
-            .unwrap_or(ProtocolType::TCP);
+        let preferred_protocol =
+            ProtocolType::select_best(&supported_protocols).unwrap_or(ProtocolType::TCP);
 
         Self {
             supported_protocols,
@@ -511,12 +512,12 @@ mod tests {
     // Helper function to create a test message
     fn create_test_message() -> Message {
         Message::new(
-            1,                          // sender
-            2,                          // recipient
-            100,                        // sequence_number
-            1704067200000,              // timestamp
-            MessageType::Data,          // message_type
-            vec![1, 2, 3, 4, 5],        // payload
+            1,                   // sender
+            2,                   // recipient
+            100,                 // sequence_number
+            1704067200000,       // timestamp
+            MessageType::Data,   // message_type
+            vec![1, 2, 3, 4, 5], // payload
         )
     }
 
@@ -599,10 +600,10 @@ mod tests {
     fn test_codec_encode_decode() {
         let codec = MessageCodec::new();
         let msg = create_test_message();
-        
+
         let encoded = codec.encode(&msg).unwrap();
         let decoded = codec.decode(&encoded).unwrap();
-        
+
         assert_eq!(msg.sender, decoded.sender);
         assert_eq!(msg.recipient, decoded.recipient);
         assert_eq!(msg.sequence_number, decoded.sequence_number);
@@ -616,9 +617,9 @@ mod tests {
     fn test_codec_encode_with_length() {
         let codec = MessageCodec::new();
         let msg = create_test_message();
-        
+
         let encoded = codec.encode_with_length(&msg).unwrap();
-        
+
         // Check that first 4 bytes are the length
         let length = u32::from_be_bytes([encoded[0], encoded[1], encoded[2], encoded[3]]) as usize;
         assert_eq!(length, encoded.len() - 4);
@@ -635,10 +636,10 @@ mod tests {
             MessageType::Data,
             vec![0; 100], // Large payload
         );
-        
+
         let result = codec.encode(&msg);
         assert!(result.is_err());
-        
+
         if let Err(DatabaseError::MessageTooLarge { size, max_size }) = result {
             assert!(size > max_size);
             assert_eq!(max_size, 10);
@@ -651,10 +652,10 @@ mod tests {
     fn test_codec_decode_rejects_oversized_message() {
         let codec = MessageCodec::with_max_size(10);
         let large_data = vec![0; 100];
-        
+
         let result = codec.decode(&large_data);
         assert!(result.is_err());
-        
+
         if let Err(DatabaseError::MessageTooLarge { size, max_size }) = result {
             // Size is 99 because we subtract 1 byte for the compression flag
             assert_eq!(size, 99);
@@ -668,19 +669,19 @@ mod tests {
     fn test_codec_decode_detects_checksum_mismatch() {
         let codec = MessageCodec::new();
         let msg = create_test_message();
-        
+
         // Encode the message
         let mut encoded = codec.encode(&msg).unwrap();
-        
+
         // Corrupt the payload in the encoded data (skip the checksum field)
         if encoded.len() > 10 {
             encoded[10] ^= 0xFF;
         }
-        
+
         // Try to decode - should fail checksum validation
         let result = codec.decode(&encoded);
         assert!(result.is_err());
-        
+
         if let Err(DatabaseError::ChecksumMismatch { expected, actual }) = result {
             assert_ne!(expected, actual);
         } else {
@@ -699,17 +700,17 @@ mod tests {
     async fn test_codec_read_write_message() {
         let codec = MessageCodec::new();
         let msg = create_test_message();
-        
+
         // Create an in-memory buffer
         let mut buffer = Vec::new();
-        
+
         // Write message
         codec.write_message(&mut buffer, &msg).await.unwrap();
-        
+
         // Read message back
         let mut cursor = &buffer[..];
         let decoded = codec.read_message(&mut cursor).await.unwrap();
-        
+
         assert_eq!(msg.sender, decoded.sender);
         assert_eq!(msg.recipient, decoded.recipient);
         assert_eq!(msg.sequence_number, decoded.sequence_number);
@@ -719,14 +720,14 @@ mod tests {
     #[tokio::test]
     async fn test_codec_read_message_validates_size() {
         let codec = MessageCodec::with_max_size(10);
-        
+
         // Create a buffer with a length prefix indicating a large message
         let mut buffer = Vec::new();
         buffer.extend_from_slice(&1000u32.to_be_bytes()); // Length = 1000
-        
+
         let mut cursor = &buffer[..];
         let result = codec.read_message(&mut cursor).await;
-        
+
         assert!(result.is_err());
         if let Err(DatabaseError::MessageTooLarge { size, max_size }) = result {
             assert_eq!(size, 1000);
@@ -740,10 +741,10 @@ mod tests {
     async fn test_codec_write_message_includes_length_prefix() {
         let codec = MessageCodec::new();
         let msg = create_test_message();
-        
+
         let mut buffer = Vec::new();
         codec.write_message(&mut buffer, &msg).await.unwrap();
-        
+
         // Check that buffer starts with length prefix
         assert!(buffer.len() >= 4);
         let length = u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
@@ -807,21 +808,21 @@ mod tests {
     #[test]
     fn test_codec_compression_large_message() {
         let codec = MessageCodec::with_compression(true, 100);
-        
+
         // Create a large message (> 100 bytes)
         let large_payload = vec![0u8; 500];
         let msg = Message::new(1, 2, 100, 1704067200000, MessageType::Data, large_payload);
-        
+
         // Encode with compression
         let encoded = codec.encode(&msg).unwrap();
-        
+
         // Encode without compression for comparison
         let codec_no_compression = MessageCodec::with_compression(false, 100);
         let encoded_no_compression = codec_no_compression.encode(&msg).unwrap();
-        
+
         // Compressed should be different size (LZ4 adds size prefix)
         assert_ne!(encoded.len(), encoded_no_compression.len());
-        
+
         // Decode and verify
         let decoded = codec.decode(&encoded).unwrap();
         assert_eq!(msg.sender, decoded.sender);
@@ -831,21 +832,21 @@ mod tests {
     #[test]
     fn test_codec_compression_small_message() {
         let codec = MessageCodec::with_compression(true, 1000);
-        
+
         // Create a small message (< 1000 bytes)
         let small_payload = vec![1, 2, 3, 4, 5];
         let msg = Message::new(1, 2, 100, 1704067200000, MessageType::Data, small_payload);
-        
+
         // Encode with compression
         let encoded = codec.encode(&msg).unwrap();
-        
+
         // Encode without compression for comparison
         let codec_no_compression = MessageCodec::with_compression(false, 1000);
         let encoded_no_compression = codec_no_compression.encode(&msg).unwrap();
-        
+
         // Should be same size (not compressed)
         assert_eq!(encoded.len(), encoded_no_compression.len());
-        
+
         // Decode and verify
         let decoded = codec.decode(&encoded).unwrap();
         assert_eq!(msg.sender, decoded.sender);
@@ -855,15 +856,15 @@ mod tests {
     #[test]
     fn test_codec_compression_round_trip() {
         let codec = MessageCodec::with_compression(true, 50);
-        
+
         // Create a message above threshold
         let payload = vec![42u8; 200];
         let msg = Message::new(1, 2, 100, 1704067200000, MessageType::Data, payload.clone());
-        
+
         // Encode and decode
         let encoded = codec.encode(&msg).unwrap();
         let decoded = codec.decode(&encoded).unwrap();
-        
+
         // Verify all fields match
         assert_eq!(msg.sender, decoded.sender);
         assert_eq!(msg.recipient, decoded.recipient);
@@ -898,11 +899,11 @@ mod property_tests {
     // Strategy for generating valid Messages
     fn message_strategy() -> impl Strategy<Value = Message> {
         (
-            any::<u64>(),                    // sender
-            any::<u64>(),                    // recipient
-            any::<u64>(),                    // sequence_number
-            any::<i64>(),                    // timestamp
-            message_type_strategy(),         // message_type
+            any::<u64>(),                                // sender
+            any::<u64>(),                                // recipient
+            any::<u64>(),                                // sequence_number
+            any::<i64>(),                                // timestamp
+            message_type_strategy(),                     // message_type
             prop::collection::vec(any::<u8>(), 0..1000), // payload (up to 1000 bytes)
         )
             .prop_map(|(sender, recipient, seq, ts, msg_type, payload)| {
@@ -915,17 +916,17 @@ mod property_tests {
     // Validates: Requirements 13.1
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_message_serialization_round_trip(msg in message_strategy()) {
             let codec = MessageCodec::new();
-            
+
             // Encode the message
             let encoded = codec.encode(&msg).expect("Encoding should succeed");
-            
+
             // Decode the message
             let decoded = codec.decode(&encoded).expect("Decoding should succeed");
-            
+
             // Verify all fields match
             prop_assert_eq!(msg.sender, decoded.sender);
             prop_assert_eq!(msg.recipient, decoded.recipient);
@@ -942,30 +943,30 @@ mod property_tests {
     // Validates: Requirements 13.2
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_checksum_detects_corruption(
             msg in message_strategy(),
             corruption_index in 0usize..100,
         ) {
             let codec = MessageCodec::new();
-            
+
             // Encode the message
             let mut encoded = codec.encode(&msg).expect("Encoding should succeed");
-            
+
             // Skip test if message is too small to corrupt meaningfully
             if encoded.len() < 10 {
                 return Ok(());
             }
-            
+
             // Corrupt a byte in the encoded data (but not the compression flag at index 0)
             // Start from index 1 to avoid corrupting the compression flag
             let idx = (corruption_index % (encoded.len() - 1)) + 1;
             encoded[idx] ^= 0xFF;
-            
+
             // Try to decode - should either fail deserialization or checksum validation
             let result = codec.decode(&encoded);
-            
+
             // We expect either a serialization error or checksum mismatch
             prop_assert!(
                 result.is_err(),
@@ -979,17 +980,17 @@ mod property_tests {
     // Validates: Requirements 13.3
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_length_prefixed_framing(msg in message_strategy()) {
             let codec = MessageCodec::new();
-            
+
             // Encode with length prefix
             let encoded_with_length = codec.encode_with_length(&msg).expect("Encoding should succeed");
-            
+
             // Verify we have at least 4 bytes for the length prefix
             prop_assert!(encoded_with_length.len() >= 4);
-            
+
             // Extract the length prefix
             let length = u32::from_be_bytes([
                 encoded_with_length[0],
@@ -997,14 +998,14 @@ mod property_tests {
                 encoded_with_length[2],
                 encoded_with_length[3],
             ]) as usize;
-            
+
             // Verify the length matches the actual message size
             prop_assert_eq!(length, encoded_with_length.len() - 4);
-            
+
             // Verify we can decode the message correctly
             let message_data = &encoded_with_length[4..];
             let decoded = codec.decode(message_data).expect("Decoding should succeed");
-            
+
             prop_assert_eq!(msg.sender, decoded.sender);
             prop_assert_eq!(msg.payload, decoded.payload);
         }
@@ -1015,7 +1016,7 @@ mod property_tests {
     // Validates: Requirements 13.5
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_message_size_limit_enforcement(
             sender in any::<u64>(),
@@ -1027,14 +1028,14 @@ mod property_tests {
         ) {
             let max_size = 500; // Small limit for testing
             let codec = MessageCodec::with_max_size(max_size);
-            
+
             // Create a message with the specified payload size
             let payload = vec![0u8; payload_size];
             let msg = Message::new(sender, recipient, seq, ts, msg_type, payload);
-            
+
             // Try to encode the message
             let result = codec.encode(&msg);
-            
+
             // If the encoded size would exceed the limit, it should fail
             if let Ok(encoded) = &result {
                 prop_assert!(
@@ -1058,7 +1059,7 @@ mod property_tests {
     // Validates: Requirements 13.6
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_compression_threshold(
             sender in any::<u64>(),
@@ -1071,27 +1072,27 @@ mod property_tests {
         ) {
             // Create codec with compression enabled
             let codec = MessageCodec::with_compression(true, threshold);
-            
+
             // Create a message with the specified payload size
             let payload = vec![0u8; payload_size];
             let msg = Message::new(sender, recipient, seq, ts, msg_type, payload);
-            
+
             // Encode the message
             let encoded = codec.encode(&msg);
-            
+
             // Skip if encoding failed (message too large)
             if encoded.is_err() {
                 return Ok(());
             }
-            
+
             let encoded = encoded.unwrap();
-            
+
             // Serialize without compression to get the uncompressed size
             let uncompressed = bincode::serialize(&msg).unwrap();
-            
+
             // Account for the compression flag byte (1 byte prepended to all encoded messages)
             let expected_uncompressed_size = uncompressed.len() + 1;
-            
+
             // If uncompressed size > threshold, encoded should be compressed (different size)
             // If uncompressed size <= threshold, encoded should be uncompressed (same size + 1 byte flag)
             if uncompressed.len() > threshold {
@@ -1110,7 +1111,7 @@ mod property_tests {
                     "Message at or below threshold should not be compressed"
                 );
             }
-            
+
             // Verify we can decode the message correctly
             let decoded = codec.decode(&encoded).expect("Decoding should succeed");
             prop_assert_eq!(msg.sender, decoded.sender);
@@ -1123,7 +1124,7 @@ mod property_tests {
     // Validates: Requirements 13.7
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(100))]
-        
+
         #[test]
         fn prop_feature_negotiation(
             include_compression_client in any::<bool>(),
@@ -1134,7 +1135,7 @@ mod property_tests {
             include_streaming_server in any::<bool>(),
         ) {
             use crate::types::Feature;
-            
+
             // Build client features
             let mut client_features = Vec::new();
             if include_compression_client {
@@ -1146,7 +1147,7 @@ mod property_tests {
             if include_streaming_client {
                 client_features.push(Feature::Streaming);
             }
-            
+
             // Build server features
             let mut server_features = Vec::new();
             if include_compression_server {
@@ -1158,20 +1159,20 @@ mod property_tests {
             if include_streaming_server {
                 server_features.push(Feature::Streaming);
             }
-            
+
             // Calculate expected intersection
             let expected: Vec<Feature> = client_features
                 .iter()
                 .filter(|f| server_features.contains(f))
                 .cloned()
                 .collect();
-            
+
             // Simulate negotiation by calculating intersection
             let negotiated: Vec<Feature> = client_features
                 .into_iter()
                 .filter(|f| server_features.contains(&f))
                 .collect();
-            
+
             // Verify negotiated features match expected intersection
             prop_assert_eq!(negotiated.len(), expected.len());
             for feature in &expected {

@@ -406,7 +406,10 @@ mod tests {
         let err = DatabaseError::IsolationViolation {
             details: "Read uncommitted data".to_string(),
         };
-        assert_eq!(err.to_string(), "Isolation violation: Read uncommitted data");
+        assert_eq!(
+            err.to_string(),
+            "Isolation violation: Read uncommitted data"
+        );
     }
 
     // Protocol Error Tests
@@ -415,7 +418,10 @@ mod tests {
         let err = DatabaseError::SerializationError {
             message: "Failed to encode message".to_string(),
         };
-        assert_eq!(err.to_string(), "Serialization error: Failed to encode message");
+        assert_eq!(
+            err.to_string(),
+            "Serialization error: Failed to encode message"
+        );
     }
 
     #[test]

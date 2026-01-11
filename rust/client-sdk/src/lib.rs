@@ -30,28 +30,35 @@
 //! }
 //! ```
 
+pub mod admin_client;
 pub mod auth;
 pub mod client;
 pub mod connection;
 pub mod data_client;
 pub mod error;
+pub mod metrics;
 pub mod protocol;
 pub mod query_builder;
 pub mod result;
 pub mod transaction;
 pub mod types;
-pub mod admin_client;
-pub mod metrics;
 
 pub use admin_client::AdminClient;
 pub use auth::{AuthToken, AuthenticationManager, Certificate, Credentials};
 pub use client::{Client, ClusterHealth};
-pub use connection::{execute_with_timeout, Connection, ConnectionManager, ConnectionPool, NodeHealth, PooledConnection, ProtocolType};
+pub use connection::{
+    execute_with_timeout, Connection, ConnectionManager, ConnectionPool, NodeHealth,
+    PooledConnection, ProtocolType,
+};
 pub use data_client::{BatchContext, DataClient, ExecuteResult, PreparedStatement, ResultStream};
 pub use error::DatabaseError;
-pub use metrics::{ClientMetrics, ConnectionMetrics, MetricsCollector, OperationMetrics, Percentiles};
-pub use protocol::{AdminRequest, AdminResponse, Message, MessageCodec, MessageType, Request, Response};
-pub use query_builder::{QueryBuilder, QueryType, OrderDirection};
+pub use metrics::{
+    ClientMetrics, ConnectionMetrics, MetricsCollector, OperationMetrics, Percentiles,
+};
+pub use protocol::{
+    AdminRequest, AdminResponse, Message, MessageCodec, MessageType, Request, Response,
+};
+pub use query_builder::{OrderDirection, QueryBuilder, QueryType};
 pub use result::{ColumnMetadata, DataType, QueryResult, Row};
 pub use transaction::{IsolationLevel, Transaction, TransactionRequest, TransactionResponse};
 pub use types::*;
