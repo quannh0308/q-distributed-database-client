@@ -1,142 +1,180 @@
 # Automated Task Execution Cycle
 
-**Current Task**: 16 - Add Monitoring and Observability
+**Current Task**: 17 - Create Documentation and Examples
 
 This is an automated 2-task cycle designed to minimize token consumption by loading only the current task context instead of the entire massive project specification.
 
 ## Tasks
 
-- [x] 1. Execute Current Task (16): Add Monitoring and Observability
-  - **Task Objective**: Implement comprehensive monitoring, logging, and distributed tracing capabilities to enable debugging, performance analysis, and operational visibility
+- [ ] 1. Execute Current Task (17): Create Documentation and Examples
+  - **Task Objective**: Create comprehensive documentation and example applications to help developers understand and use the SDK effectively
   
   - **Implementation Steps**:
     
-    **Step 1: Implement Metrics Collector**
+    **Step 1: Write API Documentation**
     
-    1. **Create metrics module in `rust/client-sdk/src/metrics.rs`**
-       - Implement `MetricsCollector` struct with operation and connection metrics
-       - Implement `OperationMetrics` for tracking counts, success/error rates, latencies
-       - Implement `ConnectionMetrics` for pool statistics
-       - Implement `ClientMetrics` as the public metrics API
-       - Implement `Percentiles` struct for latency percentiles (p50, p95, p99)
-       - Add methods: `record_operation()`, `update_connection_metrics()`, `record_auth_attempt()`, `get_metrics()`
-       - _Requirements: 11.1, 11.5_
+    1. **Add rustdoc comments to all public items in `rust/client-sdk/src/lib.rs`**
+       - Add module-level documentation explaining the SDK purpose
+       - Document all exported types and modules
+       - Include overview and quick start example
+       - _Requirements: All_
     
-    **Step 2: Integrate Metrics into Client**
+    2. **Add rustdoc comments to `rust/client-sdk/src/client.rs`**
+       - Document Client struct and all public methods
+       - Include examples for connect(), disconnect(), data(), admin(), health_check()
+       - Document error conditions
+       - _Requirements: All_
     
-    1. **Update Client struct in `rust/client-sdk/src/client.rs`**
-       - Add `metrics: Arc<MetricsCollector>` field
-       - Initialize metrics collector in `connect()`
-       - Implement `get_metrics()` method to expose metrics
-       - _Requirements: 11.5_
+    3. **Add rustdoc comments to `rust/client-sdk/src/connection.rs`**
+       - Document ConnectionManager, Connection, ConnectionConfig
+       - Include examples for connection configuration
+       - Document pool configuration options
+       - _Requirements: All_
     
-    **Step 3: Add Metrics to DataClient**
+    4. **Add rustdoc comments to `rust/client-sdk/src/auth.rs`**
+       - Document AuthenticationManager, Credentials, AuthToken
+       - Include authentication examples
+       - Document token management
+       - _Requirements: All_
     
-    1. **Update DataClient in `rust/client-sdk/src/data_client.rs`**
-       - Add `metrics: Arc<MetricsCollector>` field
-       - Record metrics for `execute()`, `query()`, and transaction operations
-       - Track operation duration and success/failure
-       - _Requirements: 11.1_
+    5. **Add rustdoc comments to `rust/client-sdk/src/data_client.rs`**
+       - Document DataClient and all CRUD methods
+       - Include examples for execute(), query(), transactions
+       - Document streaming and batch operations
+       - _Requirements: All_
     
-    **Step 4: Add Metrics to ConnectionManager**
+    6. **Add rustdoc comments to `rust/client-sdk/src/query_builder.rs`**
+       - Document QueryBuilder and fluent API
+       - Include examples for SELECT, INSERT, UPDATE, DELETE
+       - Document SQL injection prevention
+       - _Requirements: All_
     
-    1. **Update ConnectionManager in `rust/client-sdk/src/connection.rs`**
-       - Add `metrics: Arc<MetricsCollector>` field
-       - Record connection pool metrics
-       - Track connection errors and timeouts
-       - Update metrics on connection state changes
-       - _Requirements: 11.1_
+    7. **Add rustdoc comments to `rust/client-sdk/src/transaction.rs`**
+       - Document Transaction struct and methods
+       - Include examples for commit() and rollback()
+       - Document automatic rollback behavior
+       - _Requirements: All_
     
-    **Step 5: Add Metrics to AuthenticationManager**
+    8. **Add rustdoc comments to `rust/client-sdk/src/admin_client.rs`**
+       - Document AdminClient and all admin operations
+       - Include examples for cluster and user management
+       - Document permissions and roles
+       - _Requirements: All_
     
-    1. **Update AuthenticationManager in `rust/client-sdk/src/auth.rs`**
-       - Add `metrics: Arc<MetricsCollector>` field
-       - Record authentication success/failure counts
-       - Track auth operation duration
-       - _Requirements: 11.1_
+    9. **Add rustdoc comments to `rust/client-sdk/src/result.rs`**
+       - Document QueryResult, Row, ExecuteResult
+       - Include examples for result iteration and column access
+       - Document type conversion
+       - _Requirements: All_
     
-    **Step 6: Implement Logging**
+    10. **Add rustdoc comments to `rust/client-sdk/src/error.rs`**
+        - Document DatabaseError enum and all variants
+        - Include examples for error handling
+        - Document retry behavior
+        - _Requirements: All_
     
-    1. **Add logging configuration to ConnectionConfig**
-       - Define `LogConfig` struct with level, format, output
-       - Add `log_config: Option<LogConfig>` to `ConnectionConfig`
-       - Initialize `tracing_subscriber` in `Client::connect()`
-       - _Requirements: 11.6_
+    11. **Add rustdoc comments to `rust/client-sdk/src/protocol.rs`**
+        - Document Message, MessageCodec, MessageType
+        - Include examples for message serialization
+        - Document protocol details
+        - _Requirements: All_
     
-    2. **Add structured logging throughout SDK**
-       - Log connection lifecycle events (INFO level)
-       - Log errors with full context (ERROR level)
-       - Log retries and warnings (WARN level)
-       - Log query execution (DEBUG level)
-       - _Requirements: 11.2, 11.3_
+    12. **Add rustdoc comments to `rust/client-sdk/src/types.rs`**
+        - Document Value enum and type conversions
+        - Include examples for type usage
+        - Document supported types
+        - _Requirements: All_
     
-    **Step 7: Implement Distributed Tracing**
+    13. **Add rustdoc comments to `rust/client-sdk/src/metrics.rs`**
+        - Document MetricsCollector, ClientMetrics
+        - Include examples for metrics retrieval
+        - Document monitoring capabilities
+        - _Requirements: All_
     
-    1. **Add OpenTelemetry integration**
-       - Define `TracingConfig` struct
-       - Add `tracing_config: Option<TracingConfig>` to `ConnectionConfig`
-       - Initialize OpenTelemetry tracer in `Client::connect()`
-       - Create helper function `execute_with_tracing()` for span creation
-       - _Requirements: 11.4_
+    **Step 2: Create Getting Started Guide**
     
-    2. **Add spans to operations**
-       - Create spans for DataClient operations
-       - Create spans for authentication
-       - Add operation attributes (SQL, node_id, etc.)
-       - Record errors in spans
-       - _Requirements: 11.4_
+    1. **Create `docs/getting-started.md`**
+       - Write installation instructions
+       - Create basic usage examples
+       - Document configuration options
+       - Add troubleshooting section
+       - _Requirements: All_
     
-    **Step 8: Update Dependencies**
+    **Step 3: Create Example Applications**
     
-    1. **Update `rust/client-sdk/Cargo.toml`**
-       - Add `tracing = "0.1"`
-       - Add `tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }`
-       - Add `opentelemetry = "0.20"`
-       - Add `opentelemetry-otlp = "0.13"`
+    1. **Create `examples/basic_crud.rs`**
+       - Implement complete CRUD example
+       - Add detailed comments explaining each step
+       - Ensure example compiles and runs
+       - _Requirements: 3.1, 3.2, 3.3, 3.4_
     
-    **Step 9: Export Monitoring Types**
+    2. **Create `examples/transactions.rs`**
+       - Implement transaction usage example
+       - Show commit and rollback scenarios
+       - Add detailed comments
+       - Ensure example compiles and runs
+       - _Requirements: 5.1, 5.3, 5.4_
     
-    1. **Update `rust/client-sdk/src/lib.rs`**
-       - Add `mod metrics;` declaration
-       - Export monitoring types: `ClientMetrics`, `LogConfig`, `TracingConfig`
-       - Ensure monitoring is part of public API
+    3. **Create `examples/connection_pooling.rs`**
+       - Implement connection pool configuration example
+       - Show concurrent operations
+       - Add detailed comments
+       - Ensure example compiles and runs
+       - _Requirements: 1.5, 1.9_
+    
+    4. **Create `examples/admin_operations.rs`**
+       - Implement cluster and user management example
+       - Show node listing, user creation, permissions
+       - Add detailed comments
+       - Ensure example compiles and runs
+       - _Requirements: 6.1, 7.1_
+    
+    **Step 4: Verify Documentation**
+    
+    1. **Build and verify documentation**
+       - Run `cargo doc --no-deps` to generate docs
+       - Verify all public items are documented
+       - Check for broken links
+       - Ensure examples compile
+    
+    2. **Test examples**
+       - Run each example to verify it works
+       - Check output is correct
+       - Verify error handling
   
   - **Success Criteria**:
-    - ✅ MetricsCollector implemented and collecting metrics
-    - ✅ Metrics integrated into all major components
-    - ✅ `get_metrics()` API returns comprehensive metrics
-    - ✅ Logging configured and emitting structured logs
-    - ✅ Connection lifecycle events logged
-    - ✅ Errors logged with full context
-    - ✅ OpenTelemetry tracing integrated
-    - ✅ Spans created for operations
-    - ✅ Monitoring types exported in public API
-    - ✅ Code compiles without errors or warnings
+    - ✅ All public items have rustdoc comments
+    - ✅ Code examples included in documentation
+    - ✅ Getting started guide is complete and clear
+    - ✅ All example applications compile and run
+    - ✅ Documentation builds without warnings
+    - ✅ Examples demonstrate key functionality
+    - ✅ Error types are well-documented
+    - ✅ Configuration options are documented
   
   - **Subtasks**:
-    - [ ] 16.1 Implement metrics collection
-    - [ ] 16.2 Implement logging
-    - [ ] 16.3 Add distributed tracing support
-    - [ ]* 16.4 Write unit tests for monitoring
+    - [ ] 17.1 Write API documentation
+    - [ ] 17.2 Create getting started guide
+    - [ ] 17.3 Create example applications
   
-  - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6_
+  - _Requirements: All_
 
-- [-] 2. Complete and Setup Next Task: Mark Task 16 complete and setup Task 17 context
+- [ ] 2. Complete and Setup Next Task: Mark Task 17 complete and setup Task 18 context
   - **Automation Steps**:
-    1. **Commit ALL Task 16 implementation**: Run `git add -A` and commit all monitoring implementation
+    1. **Commit ALL Task 17 implementation**: Run `git add -A` and commit all documentation
     2. **Push implementation commit**: Run `git push` to push the implementation to upstream
-    3. Update FOUNDATION/tasks.md: Change `- [ ] 16` to `- [x] 16`
-    4. Create git commit documenting Task 16 completion in FOUNDATION
+    3. Update FOUNDATION/tasks.md: Change `- [ ] 17` to `- [x] 17`
+    4. Create git commit documenting Task 17 completion in FOUNDATION
     5. **Push FOUNDATION update**: Run `git push` to push the FOUNDATION update to upstream
-    6. Identify Next Task: Task 17 from FOUNDATION/tasks.md
-    7. Extract Context: Get Task 17 requirements from FOUNDATION files
+    6. Identify Next Task: Task 18 from FOUNDATION/tasks.md
+    7. Extract Context: Get Task 18 requirements from FOUNDATION files
     8. Update Active Files:
-       - Update requirements.md with Task 17 context
-       - Update design.md with Task 17 context
-       - Update this tasks.md with new 2-task cycle for Task 17
+       - Update requirements.md with Task 18 context
+       - Update design.md with Task 18 context
+       - Update this tasks.md with new 2-task cycle for Task 18
     9. Create final git commit with all spec updates
     10. **Push spec updates**: Run `git push` to push the spec updates to upstream
-  - **Expected Result**: Complete automation setup for Task 17 execution with minimal token consumption, all changes pushed to remote
+  - **Expected Result**: Complete automation setup for Task 18 execution with minimal token consumption, all changes pushed to remote
   - **CRITICAL**: Step 1 MUST commit all implementation before proceeding with spec updates
 
 ---
@@ -150,4 +188,3 @@ This is an automated 2-task cycle designed to minimize token consumption by load
 - **Context Preservation**: Relevant requirements and design context extracted for each task
 
 **Full Project Context**: Available in `.kiro/specs/client-sdk/FOUNDATION/` directory
-
