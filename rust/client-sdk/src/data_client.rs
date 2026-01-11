@@ -174,6 +174,28 @@ impl BatchContext {
 }
 
 /// Data client for CRUD operations
+///
+/// Provides methods for executing queries, updates, and managing transactions.
+/// All operations are async and use the connection pool for efficient resource usage.
+///
+/// # Example
+///
+/// ```ignore
+/// // Execute a query
+/// let result = client.data().query("SELECT * FROM users").await?;
+///
+/// // Execute an update
+/// let result = client.data().execute_with_params(
+///     "UPDATE users SET status = ? WHERE id = ?",
+///     &[Value::String("active".to_string()), Value::Int(1)]
+/// ).await?;
+///
+/// // Begin a transaction
+/// let mut txn = client.data().begin_transaction().await?;
+/// txn.execute("INSERT INTO users (name) VALUES ('Alice')").await?;
+/// txn.commit().await?;
+/// ```
+#[derive(Clone)]
 pub struct DataClient {
     /// Connection manager
     connection_manager: Arc<ConnectionManager>,

@@ -163,7 +163,7 @@ impl Value {
         }
     }
 
-    /// Converts the value to Vec<u8>, returning an error if conversion fails
+    /// Converts the value to `Vec<u8>`, returning an error if conversion fails
     pub fn as_bytes_vec(&self) -> crate::Result<Vec<u8>> {
         match self {
             Value::Bytes(b) => Ok(b.clone()),
@@ -175,7 +175,7 @@ impl Value {
         }
     }
 
-    /// Converts the value to DateTime<Utc>, returning an error if conversion fails
+    /// Converts the value to `DateTime<Utc>`, returning an error if conversion fails
     pub fn as_timestamp_result(&self) -> crate::Result<DateTime<Utc>> {
         match self {
             Value::Timestamp(ts) => Ok(*ts),

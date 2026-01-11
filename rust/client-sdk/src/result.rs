@@ -118,13 +118,13 @@ impl Row {
         value.as_bool_result()
     }
 
-    /// Gets a value and converts it to Vec<u8>
+    /// Gets a value and converts it to `Vec<u8>`
     pub fn get_bytes(&self, index: usize) -> Result<Vec<u8>> {
         let value = self.get(index)?;
         value.as_bytes_vec()
     }
 
-    /// Gets a value and converts it to DateTime<Utc>
+    /// Gets a value and converts it to `DateTime<Utc>`
     pub fn get_timestamp(&self, index: usize) -> Result<DateTime<Utc>> {
         let value = self.get(index)?;
         value.as_timestamp_result()

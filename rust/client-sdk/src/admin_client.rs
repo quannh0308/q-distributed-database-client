@@ -20,6 +20,24 @@ use std::sync::Arc;
 /// - Cluster management (nodes, health, rebalancing)
 /// - User management (CRUD, permissions)
 /// - Metrics and monitoring
+///
+/// # Example
+///
+/// ```ignore
+/// // List cluster nodes
+/// let nodes = client.admin().list_nodes().await?;
+///
+/// // Create a new user
+/// let user_id = client.admin().create_user(
+///     "developer",
+///     "password",
+///     &[Role::User]
+/// ).await?;
+///
+/// // Grant permissions
+/// client.admin().grant_permission(user_id, Permission::Read).await?;
+/// ```
+#[derive(Clone)]
 pub struct AdminClient {
     /// Connection manager for database connections
     connection_manager: Arc<ConnectionManager>,

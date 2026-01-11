@@ -23,6 +23,31 @@ pub struct ClusterHealth {
 }
 
 /// Main client for interacting with the database
+///
+/// The Client is the main entry point for interacting with the q-distributed-database.
+/// It provides access to data operations, admin operations, and cluster health monitoring.
+///
+/// # Example
+///
+/// ```ignore
+/// use q_distributed_db_client::{Client, ConnectionConfig};
+///
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let config = ConnectionConfig::default()
+///         .with_hosts(vec!["localhost:7000".to_string()])
+///         .with_credentials("admin", "password");
+///     
+///     let client = Client::connect(config).await?;
+///     
+///     // Use the client for operations
+///     let result = client.data().query("SELECT * FROM users").await?;
+///     
+///     client.disconnect().await?;
+///     Ok(())
+/// }
+/// ```
+#[derive(Clone)]
 pub struct Client {
     /// Connection configuration
     config: ConnectionConfig,
