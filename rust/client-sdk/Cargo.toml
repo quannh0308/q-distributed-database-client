@@ -19,6 +19,10 @@ crc32fast = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
 lz4_flex = "0.11"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+opentelemetry = "0.20"
+opentelemetry-otlp = "0.13"
 
 [dev-dependencies]
 tokio-test = "0.4"

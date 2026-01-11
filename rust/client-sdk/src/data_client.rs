@@ -6,6 +6,7 @@
 use crate::auth::AuthenticationManager;
 use crate::connection::{ConnectionManager, PooledConnection};
 use crate::error::DatabaseError;
+use crate::metrics::MetricsCollector;
 use crate::protocol::{Message, MessageType};
 use crate::result::{ColumnMetadata, QueryResult, Row};
 use crate::types::{StatementId, Value};
@@ -180,6 +181,8 @@ pub struct DataClient {
     auth_manager: Arc<AuthenticationManager>,
     /// Prepared statement cache
     prepared_statements: Arc<RwLock<HashMap<String, PreparedStatement>>>,
+    /// Metrics collector
+    metrics: Arc<MetricsCollector>,
 }
 
 impl DataClient {
@@ -187,11 +190,13 @@ impl DataClient {
     pub fn new(
         connection_manager: Arc<ConnectionManager>,
         auth_manager: Arc<AuthenticationManager>,
+        metrics: Arc<MetricsCollector>,
     ) -> Self {
         Self {
             connection_manager,
             auth_manager,
             prepared_statements: Arc::new(RwLock::new(HashMap::new())),
+            metrics,
         }
     }
 
@@ -202,6 +207,9 @@ impl DataClient {
 
     /// Executes a SQL statement with parameters
     pub async fn execute_with_params(&self, sql: &str, params: &[Value]) -> Result<ExecuteResult> {
+        tracing::debug!("Executing SQL: {}", sql);
+        let start = std::time::Instant::now();
+        
         // Get connection from pool
         let mut conn = self.connection_manager.get_connection().await?;
 
@@ -225,31 +233,48 @@ impl DataClient {
         let response = conn
             .connection_mut()
             .send_request(MessageType::Data, payload, 5000)
-            .await?;
+            .await;
 
-        // Parse response
-        let execute_response: ExecuteResponse =
-            bincode::deserialize(&response.payload).map_err(|e| {
-                DatabaseError::SerializationError {
-                    message: format!("Failed to deserialize execute response: {}", e),
+        let latency = start.elapsed().as_millis() as f64;
+
+        let result = match response {
+            Ok(resp) => {
+                // Parse response
+                let execute_response: ExecuteResponse =
+                    bincode::deserialize(&resp.payload).map_err(|e| {
+                        DatabaseError::SerializationError {
+                            message: format!("Failed to deserialize execute response: {}", e),
+                        }
+                    })?;
+
+                // Check for errors
+                if let Some(error) = execute_response.error {
+                    self.metrics.record_execute(false, latency).await;
+                    tracing::error!("Execute failed: {}", error);
+                    Err(DatabaseError::InternalError {
+                        component: "DataClient".to_string(),
+                        details: error,
+                    })
+                } else {
+                    self.metrics.record_execute(true, latency).await;
+                    tracing::debug!("Execute successful: {} rows affected ({}ms)", execute_response.rows_affected, latency);
+                    Ok(ExecuteResult {
+                        rows_affected: execute_response.rows_affected,
+                        last_insert_id: execute_response.last_insert_id,
+                    })
                 }
-            })?;
-
-        // Check for errors
-        if let Some(error) = execute_response.error {
-            return Err(DatabaseError::InternalError {
-                component: "DataClient".to_string(),
-                details: error,
-            });
-        }
+            }
+            Err(e) => {
+                self.metrics.record_execute(false, latency).await;
+                tracing::error!("Execute failed: {}", e);
+                Err(e)
+            }
+        };
 
         // Return connection to pool
         self.connection_manager.return_connection(conn).await;
 
-        Ok(ExecuteResult {
-            rows_affected: execute_response.rows_affected,
-            last_insert_id: execute_response.last_insert_id,
-        })
+        result
     }
 
     /// Executes a query without parameters
@@ -259,6 +284,9 @@ impl DataClient {
 
     /// Executes a query with parameters
     pub async fn query_with_params(&self, sql: &str, params: &[Value]) -> Result<QueryResult> {
+        tracing::debug!("Executing query: {}", sql);
+        let start = std::time::Instant::now();
+        
         // Get connection from pool
         let mut conn = self.connection_manager.get_connection().await?;
 
@@ -283,29 +311,45 @@ impl DataClient {
         let response = conn
             .connection_mut()
             .send_request(MessageType::Data, payload, 5000)
-            .await?;
+            .await;
 
-        // Parse response
-        let query_response: QueryResponse =
-            bincode::deserialize(&response.payload).map_err(|e| {
-                DatabaseError::SerializationError {
-                    message: format!("Failed to deserialize query response: {}", e),
+        let latency = start.elapsed().as_millis() as f64;
+
+        let result = match response {
+            Ok(resp) => {
+                // Parse response
+                let query_response: QueryResponse =
+                    bincode::deserialize(&resp.payload).map_err(|e| {
+                        DatabaseError::SerializationError {
+                            message: format!("Failed to deserialize query response: {}", e),
+                        }
+                    })?;
+
+                // Check for errors
+                if let Some(error) = query_response.error {
+                    self.metrics.record_query(false, latency).await;
+                    tracing::error!("Query failed: {}", error);
+                    Err(DatabaseError::InternalError {
+                        component: "DataClient".to_string(),
+                        details: error,
+                    })
+                } else {
+                    self.metrics.record_query(true, latency).await;
+                    tracing::debug!("Query successful: {} rows returned ({}ms)", query_response.rows.len(), latency);
+                    Ok(QueryResult::from_raw(query_response.columns, query_response.rows))
                 }
-            })?;
-
-        // Check for errors
-        if let Some(error) = query_response.error {
-            return Err(DatabaseError::InternalError {
-                component: "DataClient".to_string(),
-                details: error,
-            });
-        }
+            }
+            Err(e) => {
+                self.metrics.record_query(false, latency).await;
+                tracing::error!("Query failed: {}", e);
+                Err(e)
+            }
+        };
 
         // Return connection to pool
         self.connection_manager.return_connection(conn).await;
 
-        // Convert to QueryResult using from_raw
-        Ok(QueryResult::from_raw(query_response.columns, query_response.rows))
+        result
     }
 
     /// Executes a streaming query for large result sets
@@ -463,6 +507,9 @@ impl DataClient {
     pub async fn begin_transaction(&self) -> Result<crate::transaction::Transaction> {
         use crate::transaction::{IsolationLevel, TransactionRequest, TransactionResponse};
 
+        tracing::debug!("Beginning transaction");
+        let start = std::time::Instant::now();
+
         // 1. Acquire connection from pool
         let mut connection = self.connection_manager.get_connection().await?;
 
@@ -485,39 +532,57 @@ impl DataClient {
         let response = connection
             .connection_mut()
             .send_request(MessageType::Transaction, payload, 5000)
-            .await?;
+            .await;
+
+        let latency = start.elapsed().as_millis() as f64;
 
         // 5. Verify success
-        let txn_response: TransactionResponse =
-            bincode::deserialize(&response.payload).map_err(|e| {
-                DatabaseError::SerializationError {
-                    message: format!("Failed to deserialize transaction response: {}", e),
-                }
-            })?;
+        match response {
+            Ok(resp) => {
+                let txn_response: TransactionResponse =
+                    bincode::deserialize(&resp.payload).map_err(|e| {
+                        DatabaseError::SerializationError {
+                            message: format!("Failed to deserialize transaction response: {}", e),
+                        }
+                    })?;
 
-        match txn_response {
-            TransactionResponse::BeginSuccess => {
-                Ok(crate::transaction::Transaction::new(
-                    connection,
-                    auth_token,
-                    transaction_id,
-                ))
+                match txn_response {
+                    TransactionResponse::BeginSuccess => {
+                        self.metrics.record_transaction(true, latency).await;
+                        tracing::debug!("Transaction {} started ({}ms)", transaction_id, latency);
+                        Ok(crate::transaction::Transaction::new(
+                            connection,
+                            auth_token,
+                            transaction_id,
+                        ))
+                    }
+                    TransactionResponse::Error { message } => {
+                        self.metrics.record_transaction(false, latency).await;
+                        tracing::error!("Failed to begin transaction: {}", message);
+                        // Return connection to pool on error
+                        self.connection_manager.return_connection(connection).await;
+                        Err(DatabaseError::InternalError {
+                            component: "DataClient".to_string(),
+                            details: format!("Failed to begin transaction: {}", message),
+                        })
+                    }
+                    _ => {
+                        self.metrics.record_transaction(false, latency).await;
+                        tracing::error!("Unexpected response to begin transaction");
+                        // Return connection to pool on unexpected response
+                        self.connection_manager.return_connection(connection).await;
+                        Err(DatabaseError::InternalError {
+                            component: "DataClient".to_string(),
+                            details: "Unexpected response to begin transaction".to_string(),
+                        })
+                    }
+                }
             }
-            TransactionResponse::Error { message } => {
-                // Return connection to pool on error
+            Err(e) => {
+                self.metrics.record_transaction(false, latency).await;
+                tracing::error!("Failed to begin transaction: {}", e);
                 self.connection_manager.return_connection(connection).await;
-                Err(DatabaseError::InternalError {
-                    component: "DataClient".to_string(),
-                    details: format!("Failed to begin transaction: {}", message),
-                })
-            }
-            _ => {
-                // Return connection to pool on unexpected response
-                self.connection_manager.return_connection(connection).await;
-                Err(DatabaseError::InternalError {
-                    component: "DataClient".to_string(),
-                    details: "Unexpected response to begin transaction".to_string(),
-                })
+                Err(e)
             }
         }
     }

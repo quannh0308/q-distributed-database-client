@@ -5,7 +5,8 @@ use crate::auth::{AuthenticationManager, Credentials};
 use crate::connection::{ConnectionManager, NodeHealth};
 use crate::data_client::DataClient;
 use crate::error::DatabaseError;
-use crate::types::ConnectionConfig;
+use crate::metrics::{ClientMetrics, MetricsCollector};
+use crate::types::{ConnectionConfig, LogConfig, LogFormat, LogLevel, TracingConfig};
 use crate::Result;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -33,6 +34,8 @@ pub struct Client {
     data_client: DataClient,
     /// Admin client for cluster and user management
     admin_client: AdminClient,
+    /// Metrics collector
+    metrics: Arc<MetricsCollector>,
 }
 
 impl Client {
@@ -64,10 +67,30 @@ impl Client {
         // 1. Validate configuration
         config.validate()?;
 
-        // 2. Create ConnectionManager
-        let connection_manager = Arc::new(ConnectionManager::new(config.clone()));
+        // 2. Initialize logging if configured
+        if let Some(log_config) = &config.log_config {
+            Self::initialize_logging(log_config);
+        }
 
-        // 3. Create AuthenticationManager with credentials
+        // 3. Initialize tracing if configured
+        if let Some(tracing_config) = &config.tracing_config {
+            if tracing_config.enabled {
+                Self::initialize_tracing(tracing_config)?;
+            }
+        }
+
+        tracing::info!("Connecting to database cluster with {} hosts", config.hosts.len());
+
+        // 4. Create MetricsCollector
+        let metrics = Arc::new(MetricsCollector::new());
+
+        // 5. Create ConnectionManager
+        let connection_manager = Arc::new(
+            ConnectionManager::new(config.clone())
+                .with_metrics(Arc::clone(&metrics))
+        );
+
+        // 6. Create AuthenticationManager with credentials
         let credentials = if let Some(password) = &config.password {
             Credentials::new(config.username.clone(), password.clone())
         } else if let Some(cert_data) = &config.certificate {
@@ -86,22 +109,39 @@ impl Client {
             std::time::Duration::from_secs(86400), // 24 hours default TTL
         ));
 
-        // 4. Perform initial authentication
+        // 7. Perform initial authentication
+        tracing::info!("Authenticating with username: {}", config.username);
+        let start = std::time::Instant::now();
         let conn = connection_manager.get_connection().await?;
-        auth_manager.authenticate().await?;
+        match auth_manager.authenticate().await {
+            Ok(_) => {
+                let latency = start.elapsed().as_millis() as f64;
+                metrics.record_auth_attempt(true, latency).await;
+                tracing::info!("Authentication successful ({}ms)", latency);
+            }
+            Err(e) => {
+                let latency = start.elapsed().as_millis() as f64;
+                metrics.record_auth_attempt(false, latency).await;
+                tracing::error!("Authentication failed: {}", e);
+                return Err(e);
+            }
+        }
         connection_manager.return_connection(conn).await;
 
-        // 5. Create DataClient with shared managers
+        // 8. Create DataClient with shared managers
         let data_client = DataClient::new(
             Arc::clone(&connection_manager),
             Arc::clone(&auth_manager),
+            Arc::clone(&metrics),
         );
 
-        // 6. Create AdminClient with shared managers
+        // 9. Create AdminClient with shared managers
         let admin_client = AdminClient::new(
             Arc::clone(&connection_manager),
             Arc::clone(&auth_manager),
         );
+
+        tracing::info!("Client connected successfully");
 
         Ok(Self {
             config,
@@ -109,7 +149,52 @@ impl Client {
             auth_manager,
             data_client,
             admin_client,
+            metrics,
         })
+    }
+
+    /// Initializes logging based on configuration
+    fn initialize_logging(log_config: &LogConfig) {
+        use tracing_subscriber::fmt::format::FmtSpan;
+        use tracing_subscriber::EnvFilter;
+
+        let level_filter = match log_config.level {
+            LogLevel::Trace => "trace",
+            LogLevel::Debug => "debug",
+            LogLevel::Info => "info",
+            LogLevel::Warn => "warn",
+            LogLevel::Error => "error",
+        };
+
+        let env_filter = EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new(level_filter));
+
+        match log_config.format {
+            LogFormat::Json => {
+                tracing_subscriber::fmt()
+                    .with_env_filter(env_filter)
+                    .json()
+                    .with_span_events(FmtSpan::CLOSE)
+                    .with_current_span(true)
+                    .with_thread_ids(log_config.include_thread_ids)
+                    .init();
+            }
+            LogFormat::Text => {
+                tracing_subscriber::fmt()
+                    .with_env_filter(env_filter)
+                    .with_span_events(FmtSpan::CLOSE)
+                    .with_thread_ids(log_config.include_thread_ids)
+                    .init();
+            }
+        }
+    }
+
+    /// Initializes distributed tracing based on configuration
+    fn initialize_tracing(_tracing_config: &TracingConfig) -> Result<()> {
+        // OpenTelemetry initialization would go here
+        // For now, this is a placeholder that will be implemented when
+        // OpenTelemetry integration is fully configured
+        Ok(())
     }
 
     /// Returns a reference to the data client
@@ -133,6 +218,18 @@ impl Client {
         &self.config
     }
 
+    /// Returns the current metrics snapshot
+    ///
+    /// Provides comprehensive metrics including:
+    /// - Query operation metrics (count, latency, success/error rates)
+    /// - Execute operation metrics
+    /// - Transaction operation metrics
+    /// - Authentication metrics
+    /// - Connection pool metrics
+    pub async fn get_metrics(&self) -> ClientMetrics {
+        self.metrics.get_metrics().await
+    }
+
     /// Checks the health of all nodes in the cluster
     ///
     /// Queries health status from all configured nodes and aggregates the results
@@ -149,6 +246,8 @@ impl Client {
     ///
     /// Returns an error if health check fails for all nodes
     pub async fn health_check(&self) -> Result<ClusterHealth> {
+        tracing::debug!("Performing cluster health check");
+        
         // Query health from all nodes via ConnectionManager
         let node_healths = self
             .connection_manager
@@ -161,6 +260,12 @@ impl Client {
             .iter()
             .filter(|h| h.is_healthy)
             .count();
+
+        tracing::info!(
+            "Health check complete: {}/{} nodes healthy",
+            healthy_nodes,
+            total_nodes
+        );
 
         Ok(ClusterHealth {
             total_nodes,
@@ -181,16 +286,21 @@ impl Client {
     /// Returns an error if logout or connection cleanup fails.
     /// Note: Logout errors are logged but don't prevent disconnection.
     pub async fn disconnect(self) -> Result<()> {
+        tracing::info!("Disconnecting from database cluster");
+        
         // 1. Logout to invalidate token (best effort)
         let conn = self.connection_manager.get_connection().await?;
         if let Err(e) = self.auth_manager.logout().await {
+            tracing::warn!("Logout failed during disconnect: {}", e);
             eprintln!("Warning: logout failed during disconnect: {}", e);
         }
         self.connection_manager.return_connection(conn).await;
 
         // 2. Close all connections in the pool
+        tracing::debug!("Closing all connections");
         self.connection_manager.disconnect().await;
 
+        tracing::info!("Disconnected successfully");
         Ok(())
     }
 }

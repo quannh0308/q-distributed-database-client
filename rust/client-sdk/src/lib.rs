@@ -41,6 +41,7 @@ pub mod result;
 pub mod transaction;
 pub mod types;
 pub mod admin_client;
+pub mod metrics;
 
 pub use admin_client::AdminClient;
 pub use auth::{AuthToken, AuthenticationManager, Certificate, Credentials};
@@ -48,12 +49,13 @@ pub use client::{Client, ClusterHealth};
 pub use connection::{execute_with_timeout, Connection, ConnectionManager, ConnectionPool, NodeHealth, PooledConnection, ProtocolType};
 pub use data_client::{BatchContext, DataClient, ExecuteResult, PreparedStatement, ResultStream};
 pub use error::DatabaseError;
+pub use metrics::{ClientMetrics, ConnectionMetrics, MetricsCollector, OperationMetrics, Percentiles};
 pub use protocol::{AdminRequest, AdminResponse, Message, MessageCodec, MessageType, Request, Response};
 pub use query_builder::{QueryBuilder, QueryType, OrderDirection};
 pub use result::{ColumnMetadata, DataType, QueryResult, Row};
 pub use transaction::{IsolationLevel, Transaction, TransactionRequest, TransactionResponse};
 pub use types::*;
-pub use types::{Feature, FeatureNegotiation};
+pub use types::{Feature, FeatureNegotiation, LogConfig, LogFormat, LogLevel, TracingConfig};
 
 /// Result type alias using DatabaseError
 pub type Result<T> = std::result::Result<T, DatabaseError>;

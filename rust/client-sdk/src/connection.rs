@@ -4,6 +4,7 @@
 //! retry logic with exponential backoff, and graceful shutdown.
 
 use crate::error::DatabaseError;
+use crate::metrics::MetricsCollector;
 use crate::protocol::{Message, MessageCodec, MessageType};
 use crate::types::{ConnectionConfig, NodeId, PoolConfig, Timestamp};
 use crate::Result;
@@ -135,21 +136,28 @@ pub struct Connection {
 impl Connection {
     /// Creates a new connection to the specified host
     pub async fn connect(host: &str, node_id: NodeId, timeout_ms: u64) -> Result<Self> {
+        tracing::debug!("Connecting to {} (node {})", host, node_id);
+        
         let socket = timeout(
             Duration::from_millis(timeout_ms),
             TcpStream::connect(host),
         )
         .await
-        .map_err(|_| DatabaseError::ConnectionTimeout {
-            host: host.to_string(),
-            timeout_ms,
+        .map_err(|_| {
+            tracing::error!("Connection timeout to {} after {}ms", host, timeout_ms);
+            DatabaseError::ConnectionTimeout {
+                host: host.to_string(),
+                timeout_ms,
+            }
         })?
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::ConnectionRefused {
+                tracing::error!("Connection refused to {}", host);
                 DatabaseError::ConnectionRefused {
                     host: host.to_string(),
                 }
             } else {
+                tracing::error!("Network error connecting to {}: {}", host, e);
                 DatabaseError::NetworkError {
                     details: format!("Failed to connect to {}: {}", host, e),
                 }
@@ -157,9 +165,14 @@ impl Connection {
         })?;
 
         // Enable TCP_NODELAY for low latency
-        socket.set_nodelay(true).map_err(|e| DatabaseError::NetworkError {
-            details: format!("Failed to set TCP_NODELAY: {}", e),
+        socket.set_nodelay(true).map_err(|e| {
+            tracing::warn!("Failed to set TCP_NODELAY: {}", e);
+            DatabaseError::NetworkError {
+                details: format!("Failed to set TCP_NODELAY: {}", e),
+            }
         })?;
+
+        tracing::info!("Connected to {} (node {})", host, node_id);
 
         Ok(Self {
             socket,
@@ -576,6 +589,8 @@ pub struct ConnectionManager {
     node_health: Arc<RwLock<HashMap<NodeId, NodeHealth>>>,
     /// Configuration
     config: ConnectionConfig,
+    /// Metrics collector
+    metrics: Arc<MetricsCollector>,
 }
 
 impl ConnectionManager {
@@ -591,17 +606,55 @@ impl ConnectionManager {
             pool,
             node_health: Arc::new(RwLock::new(HashMap::new())),
             config,
+            metrics: Arc::new(MetricsCollector::new()),
         }
+    }
+
+    /// Sets the metrics collector
+    pub fn with_metrics(mut self, metrics: Arc<MetricsCollector>) -> Self {
+        self.metrics = metrics;
+        self
     }
 
     /// Gets a connection from the pool
     pub async fn get_connection(&self) -> Result<PooledConnection> {
-        self.pool.get_connection().await
+        tracing::debug!("Getting connection from pool");
+        let start = std::time::Instant::now();
+        
+        let result = self.pool.get_connection().await;
+        
+        match &result {
+            Ok(_) => {
+                let latency = start.elapsed().as_millis() as f64;
+                tracing::debug!("Connection acquired ({}ms)", latency);
+                
+                // Update connection metrics
+                let total = self.pool.total_connections();
+                self.metrics.update_connection_metrics(total, 0, total).await;
+            }
+            Err(e) => {
+                let latency = start.elapsed().as_millis() as f64;
+                tracing::error!("Failed to get connection: {} ({}ms)", e, latency);
+                
+                if matches!(e, DatabaseError::ConnectionTimeout { .. }) {
+                    self.metrics.record_connection_timeout().await;
+                } else {
+                    self.metrics.record_connection_error().await;
+                }
+            }
+        }
+        
+        result
     }
 
     /// Returns a connection to the pool
     pub async fn return_connection(&self, conn: PooledConnection) {
-        self.pool.return_connection(conn).await
+        tracing::debug!("Returning connection to pool");
+        self.pool.return_connection(conn).await;
+        
+        // Update connection metrics
+        let total = self.pool.total_connections();
+        self.metrics.update_connection_metrics(total, 0, total).await;
     }
 
     /// Performs health check on all nodes
@@ -656,6 +709,8 @@ impl ConnectionManager {
 
     /// Marks a node as unhealthy
     pub async fn mark_node_unhealthy(&self, node_id: NodeId) {
+        tracing::warn!("Marking node {} as unhealthy", node_id);
+        
         let mut node_health = self.node_health.write().await;
         node_health
             .entry(node_id)
@@ -669,6 +724,8 @@ impl ConnectionManager {
 
     /// Marks a node as healthy
     pub async fn mark_node_healthy(&self, node_id: NodeId) {
+        tracing::info!("Marking node {} as healthy", node_id);
+        
         let mut node_health = self.node_health.write().await;
         node_health
             .entry(node_id)
@@ -696,6 +753,13 @@ impl ConnectionManager {
                 Ok(result) => return Ok(result),
                 Err(e) if retries < retry_config.max_retries && e.is_retryable() => {
                     retries += 1;
+                    tracing::warn!(
+                        "Operation failed (attempt {}/{}), retrying after {}ms: {}",
+                        retries,
+                        retry_config.max_retries,
+                        delay.as_millis(),
+                        e
+                    );
                     
                     tokio::time::sleep(delay).await;
                     
@@ -704,6 +768,7 @@ impl ConnectionManager {
                     delay = Duration::from_millis(next_delay_ms.min(retry_config.max_backoff_ms));
                 }
                 Err(e) => {
+                    tracing::error!("Operation failed after {} retries: {}", retries, e);
                     // Return the current error (which is the last error after all retries)
                     return Err(e);
                 }
@@ -713,8 +778,11 @@ impl ConnectionManager {
 
     /// Disconnects all connections gracefully
     pub async fn disconnect(&self) {
+        tracing::info!("Disconnecting all connections");
+        
         // Clear all available connections
         let mut available = self.pool.available.lock().await;
+        let conn_count = available.len();
         available.clear();
         
         // Reset connection count
@@ -723,6 +791,8 @@ impl ConnectionManager {
         // Clear node health
         let mut node_health = self.node_health.write().await;
         node_health.clear();
+        
+        tracing::info!("Disconnected {} connections", conn_count);
     }
 }
 
@@ -878,6 +948,8 @@ mod property_tests {
                     retry_config: RetryConfig::default(),
                     compression_enabled: false,
                     compression_threshold: 1024,
+                    log_config: None,
+                    tracing_config: None,
                 }
             })
     }

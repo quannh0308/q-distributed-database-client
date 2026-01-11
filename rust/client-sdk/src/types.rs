@@ -261,6 +261,10 @@ pub struct ConnectionConfig {
     pub compression_enabled: bool,
     /// Compression threshold in bytes
     pub compression_threshold: usize,
+    /// Logging configuration
+    pub log_config: Option<LogConfig>,
+    /// Distributed tracing configuration
+    pub tracing_config: Option<TracingConfig>,
 }
 
 impl Default for ConnectionConfig {
@@ -276,6 +280,8 @@ impl Default for ConnectionConfig {
             retry_config: RetryConfig::default(),
             compression_enabled: false,
             compression_threshold: 1024,
+            log_config: None,
+            tracing_config: None,
         }
     }
 }
@@ -356,6 +362,18 @@ impl ConnectionConfig {
     pub fn with_compression(mut self, enabled: bool, threshold: usize) -> Self {
         self.compression_enabled = enabled;
         self.compression_threshold = threshold;
+        self
+    }
+
+    /// Sets the logging configuration
+    pub fn with_logging(mut self, log_config: LogConfig) -> Self {
+        self.log_config = Some(log_config);
+        self
+    }
+
+    /// Sets the tracing configuration
+    pub fn with_tracing(mut self, tracing_config: TracingConfig) -> Self {
+        self.tracing_config = Some(tracing_config);
         self
     }
 }
@@ -635,6 +653,136 @@ pub enum Feature {
 pub struct FeatureNegotiation {
     /// List of supported features
     pub supported_features: Vec<Feature>,
+}
+
+// ============================================================================
+// Monitoring and Observability Types
+// ============================================================================
+
+/// Log level enumeration
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LogLevel {
+    /// Trace level (most verbose)
+    Trace,
+    /// Debug level
+    Debug,
+    /// Info level
+    Info,
+    /// Warn level
+    Warn,
+    /// Error level (least verbose)
+    Error,
+}
+
+impl Default for LogLevel {
+    fn default() -> Self {
+        LogLevel::Info
+    }
+}
+
+/// Log format enumeration
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LogFormat {
+    /// Human-readable text format
+    Text,
+    /// JSON format for structured logging
+    Json,
+}
+
+impl Default for LogFormat {
+    fn default() -> Self {
+        LogFormat::Text
+    }
+}
+
+/// Logging configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogConfig {
+    /// Log level
+    pub level: LogLevel,
+    /// Log format
+    pub format: LogFormat,
+    /// Whether to include timestamps
+    pub include_timestamps: bool,
+    /// Whether to include thread IDs
+    pub include_thread_ids: bool,
+}
+
+impl Default for LogConfig {
+    fn default() -> Self {
+        Self {
+            level: LogLevel::Info,
+            format: LogFormat::Text,
+            include_timestamps: true,
+            include_thread_ids: false,
+        }
+    }
+}
+
+impl LogConfig {
+    /// Creates a new log configuration with the given level
+    pub fn new(level: LogLevel) -> Self {
+        Self {
+            level,
+            ..Default::default()
+        }
+    }
+
+    /// Sets the log format
+    pub fn with_format(mut self, format: LogFormat) -> Self {
+        self.format = format;
+        self
+    }
+
+    /// Sets whether to include timestamps
+    pub fn with_timestamps(mut self, include: bool) -> Self {
+        self.include_timestamps = include;
+        self
+    }
+
+    /// Sets whether to include thread IDs
+    pub fn with_thread_ids(mut self, include: bool) -> Self {
+        self.include_thread_ids = include;
+        self
+    }
+}
+
+/// Distributed tracing configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TracingConfig {
+    /// OpenTelemetry endpoint (e.g., "http://localhost:4317")
+    pub endpoint: String,
+    /// Service name for tracing
+    pub service_name: String,
+    /// Whether to enable tracing
+    pub enabled: bool,
+}
+
+impl Default for TracingConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: "http://localhost:4317".to_string(),
+            service_name: "q-distributed-db-client".to_string(),
+            enabled: false,
+        }
+    }
+}
+
+impl TracingConfig {
+    /// Creates a new tracing configuration
+    pub fn new(endpoint: impl Into<String>, service_name: impl Into<String>) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            service_name: service_name.into(),
+            enabled: true,
+        }
+    }
+
+    /// Enables or disables tracing
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
 }
 
 
